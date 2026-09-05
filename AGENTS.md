@@ -1,0 +1,1 @@
+The official language of this repository is English; all repository content (documentation, etc.) must be in English. The only exception is the content of tmp/, which is in Spanish. You must communicate with me in Spanish.
