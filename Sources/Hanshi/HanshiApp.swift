@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct HanshiApp: App {
+    @NSApplicationDelegateAdaptor(LibraryLifecycle.self) private var lifecycle
     @State private var store = NoteStore()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -9,8 +10,12 @@ struct HanshiApp: App {
         Window("Hanshi", id: "library") {
             LibraryScreen()
                 .environment(store)
+                .background(LibraryWindowAttachment(lifecycle: lifecycle, isEdited: store.hasUnsavedChanges))
                 .frame(minWidth: 1020, minHeight: 580)
-                .task { await store.refresh() }
+                .task {
+                    lifecycle.store = store
+                    await store.refresh()
+                }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active { Task { await store.refresh() } }
                 }

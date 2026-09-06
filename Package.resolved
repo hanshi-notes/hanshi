@@ -1,0 +1,59 @@
+{
+  "originHash" : "9101bdea8d1fffa79aa38ed1dc882d80b9e7c3197dbdbc4763a12bc2551a0263",
+  "pins" : [
+    {
+      "identity" : "coretextswift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/krzyzanowskim/CoreTextSwift",
+      "state" : {
+        "revision" : "833177201d6421e6322296f39fce6ff6ae52618a",
+        "version" : "0.2.0"
+      }
+    },
+    {
+      "identity" : "sttextkitplus",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/krzyzanowskim/STTextKitPlus",
+      "state" : {
+        "revision" : "2ee74906f4d753458eeaa9a2f6d4538aacb86a1d",
+        "version" : "0.3.0"
+      }
+    },
+    {
+      "identity" : "sttextview",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/krzyzanowskim/STTextView",
+      "state" : {
+        "revision" : "a7da6bdbbd3d0beba116868941266ede11bef5b6",
+        "version" : "2.4.0"
+      }
+    },
+    {
+      "identity" : "sttextview-plugin-treesitter",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/krzyzanowskim/STTextView-Plugin-TreeSitter",
+      "state" : {
+        "revision" : "346bbce977ce6a485ff9ad5696bebbe8790241e9"
+      }
+    },
+    {
+      "identity" : "swifttreesitter",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ChimeHQ/SwiftTreeSitter",
+      "state" : {
+        "revision" : "08ef81eb8620617b55b08868126707ad72bf754f",
+        "version" : "0.25.0"
+      }
+    },
+    {
+      "identity" : "tree-sitter",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tree-sitter/tree-sitter",
+      "state" : {
+        "revision" : "da6fe9beb4f7f67beb75914ca8e0d48ae48d6406",
+        "version" : "0.25.10"
+      }
+    }
+  ],
+  "version" : 3
+}

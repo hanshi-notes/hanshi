@@ -5,25 +5,30 @@ struct LibraryScreen: View {
     @State private var notebookID = "all"
     @State private var noteID: String?
     @State private var query = ""
-    @State private var mode = ContentMode.preview
+    @State private var mode = ContentMode.source
     @State private var isZen = false
     @State private var showingNotebookSheet = false
     @State private var showingDestinationSheet = false
     @State private var notebookName = ""
+    @State private var openingNoteID: String?
+    @State private var renamingNote: Note?
+    @State private var noteName = ""
+    @State private var trashingNote: Note?
     @FocusState private var searchFocused: Bool
 
     private var notebook: Notebook? { store.notebooks.first { $0.id == notebookID } }
     private var selectedNote: Note? { store.notes.first { $0.id == noteID } }
+    private var document: NoteDocument? { noteID.flatMap { store.documents[$0] } }
     private var visibleNotes: [Note] {
         (notebook?.notes ?? store.notes).filter {
             query.isEmpty || $0.name.localizedStandardContains(query)
         }
     }
 
-    var body: some View {
+    private var libraryLayout: some View {
         GeometryReader { geometry in
             if isZen {
-                EmptyContentView(mode: mode)
+                documentContent
             } else {
                 HSplitView {
                     sidebar
@@ -43,14 +48,29 @@ struct LibraryScreen: View {
         .preferredColorScheme(.light)
         .focusedSceneValue(\.contentMode, $mode)
         .focusedSceneValue(\.zenMode, $isZen)
+        .focusedSceneValue(\.noteDocument, document)
+    }
+
+    var body: some View {
+        libraryLayout
+        .task(id: noteID) { await openSelectedNote() }
         .onChange(of: store.notebooks.map(\.id)) { _, ids in
             if notebookID != "all", !ids.contains(notebookID) { notebookID = "all" }
         }
         .onChange(of: store.notes.map(\.id)) { _, ids in
-            if let noteID, !ids.contains(noteID) { self.noteID = nil }
+            if let noteID, !ids.contains(noteID), store.documents[noteID] == nil { self.noteID = nil }
         }
         .sheet(isPresented: $showingNotebookSheet) { newNotebookSheet }
         .sheet(isPresented: $showingDestinationSheet) { destinationSheet }
+        .sheet(item: $renamingNote) { note in renameNoteSheet(note) }
+        .confirmationDialog("Move this note to the Trash?", isPresented: Binding(
+            get: { trashingNote != nil },
+            set: { if !$0 { trashingNote = nil } }
+        ), presenting: trashingNote) { note in
+            Button("Move to Trash", role: .destructive) { Task { await store.trash(note) } }
+        } message: { note in
+            Text("\(note.name) will be moved to the Trash. Any unsaved changes will be saved first.")
+        }
         .alert("Library Error", isPresented: Binding(
             get: { store.errorMessage != nil },
             set: { if !$0 { store.errorMessage = nil } }
@@ -60,7 +80,7 @@ struct LibraryScreen: View {
         } message: { Text(store.errorMessage ?? "") }
         .background {
             Button("Find Notes") { searchFocused = true }
-                .keyboardShortcut("f", modifiers: [.command])
+                .keyboardShortcut("f", modifiers: [.command, .shift])
                 .hidden()
         }
     }
@@ -72,7 +92,8 @@ struct LibraryScreen: View {
                 LazyVStack(spacing: 0) {
                     Button {
                         notebookID = "all"
-                        noteID = nil
+                        query = ""
+                        selectNote(store.notes.first?.id)
                     } label: {
                         sidebarRow("All Notes", icon: "doc.text.fill", count: store.notes.count,
                                    selected: notebookID == "all")
@@ -87,7 +108,8 @@ struct LibraryScreen: View {
                     ForEach(store.notebooks) { notebook in
                         Button {
                             notebookID = notebook.id
-                            noteID = nil
+                            query = ""
+                            selectNote(notebook.notes.first?.id)
                         } label: {
                             sidebarRow(notebook.name, count: notebook.notes.count,
                                        selected: notebookID == notebook.id)
@@ -206,13 +228,21 @@ struct LibraryScreen: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(visibleNotes) { note in
-                            Button { noteID = note.id } label: {
+                            Button { selectNote(note.id) } label: {
                                 NoteRowView(note: note, selected: noteID == note.id)
                             }
                             .buttonStyle(.plain)
                             .id(note.id)
                             .help("\(note.notebookName) / \(note.name)")
                             .contextMenu {
+                                Button("Rename…") {
+                                    noteName = note.url.deletingPathExtension().lastPathComponent
+                                    renamingNote = note
+                                }
+                                .disabled(store.isBusy)
+                                Button("Move to Trash", role: .destructive) { trashingNote = note }
+                                    .disabled(store.isBusy)
+                                Divider()
                                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([note.url]) }
                             }
                         }
@@ -244,6 +274,10 @@ struct LibraryScreen: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 toolbarGroup {
+                    toolbarButton("Save (⌘S)", icon: document?.isModified == true ? "square.and.arrow.down.fill" : "square.and.arrow.down",
+                                  action: document.map { document in { Task { await document.save() } } })
+                    .disabled(document?.isModified != true || document?.isSaving == true)
+                    toolbarDivider
                     toolbarButton("Edit", icon: "pencil", active: mode != .preview) {
                         mode = mode == .preview ? .source : .preview
                     }
@@ -279,7 +313,28 @@ struct LibraryScreen: View {
             .frame(height: 38)
             .background(Color(white: 0.97))
             .overlay(alignment: .bottom) { Divider() }
-            EmptyContentView(mode: mode)
+            documentContent
+        }
+    }
+
+    @ViewBuilder private var documentContent: some View {
+        if let document {
+            NoteEditorContentView(document: document, files: store.files, mode: mode)
+        } else if noteID != nil {
+            VStack(spacing: 12) {
+                if openingNoteID == noteID { ProgressView("Opening note…") }
+                else {
+                    Text("Unable to open this note.").foregroundStyle(.secondary)
+                    Button("Retry") {
+                        Task { await openSelectedNote() }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            Text("Select a note to start writing")
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -358,10 +413,57 @@ struct LibraryScreen: View {
         .frame(width: 360)
     }
 
+    private func renameNoteSheet(_ note: Note) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Rename Note").font(.title2.bold())
+            TextField("Name", text: $noteName)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit { renameNote(note) }
+            Text("The .md extension is kept automatically.").foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { renamingNote = nil }
+                    .keyboardShortcut(.cancelAction)
+                Button("Rename") { renameNote(note) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(noteName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.isBusy)
+            }
+        }
+        .padding(24)
+        .frame(width: 360)
+    }
+
+    private func renameNote(_ note: Note) {
+        guard !store.isBusy else { return }
+        let name = noteName
+        renamingNote = nil
+        Task {
+            if await store.rename(note, to: name), noteID == note.id { document?.editor.requestFocus() }
+        }
+    }
+
     private func newNote() {
         if let notebook { createNote(in: notebook.url) }
         else if store.notebooks.isEmpty { showingNotebookSheet = true }
         else { showingDestinationSheet = true }
+    }
+
+    private func selectNote(_ id: String?) {
+        searchFocused = false
+        noteID = id
+        if id != nil {
+            if mode == .preview { mode = .source }
+            document?.editor.requestFocus()
+        }
+    }
+
+    private func openSelectedNote() async {
+        guard let selectedNote else { return }
+        openingNoteID = selectedNote.id
+        await store.open(selectedNote)
+        guard !Task.isCancelled, noteID == selectedNote.id else { return }
+        openingNoteID = nil
+        document?.editor.requestFocus()
     }
 
     private func createNotebook() {
@@ -383,7 +485,7 @@ struct LibraryScreen: View {
         let destinationID = notebookID
         Task {
             let createdID = await store.createNote(in: folder)
-            if notebookID == destinationID { noteID = createdID }
+            if notebookID == destinationID { selectNote(createdID) }
         }
     }
 }

@@ -3,13 +3,22 @@ import SwiftUI
 extension FocusedValues {
     @Entry var contentMode: Binding<ContentMode>?
     @Entry var zenMode: Binding<Bool>?
+    @Entry var noteDocument: NoteDocument?
 }
 
 struct LibraryViewCommands: Commands {
     @FocusedBinding(\.contentMode) private var mode
     @FocusedBinding(\.zenMode) private var isZen
+    @FocusedValue(\.noteDocument) private var document
 
     var body: some Commands {
+        CommandGroup(replacing: .saveItem) {
+            Button("Save") {
+                if let document { Task { await document.save() } }
+            }
+            .keyboardShortcut("s")
+            .disabled(document?.isModified != true || document?.isSaving == true)
+        }
         CommandGroup(after: .toolbar) {
             Divider()
             Button("Editor") { mode = .source }
