@@ -98,7 +98,7 @@ struct LibraryScreen: View {
 
     private var sidebar: some View {
         VStack(spacing: 0) {
-            Color.clear.frame(height: 38)
+            Color.clear.frame(height: BarMetrics.height)
             ScrollView {
                 LazyVStack(spacing: 0) {
                     Button {
@@ -170,18 +170,15 @@ struct LibraryScreen: View {
                             selected: Bool = false) -> some View {
         HStack(spacing: 5) {
             if let icon {
-                Image(systemName: icon)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 14, height: 14)
-                    .frame(width: 18, height: 18)
+                BarIconView(icon)
+                    .frame(width: BarMetrics.iconBox, height: BarMetrics.iconBox)
             }
             Text(name)
                 .font(.system(size: 13.5, weight: .regular))
                 .lineLimit(1)
             Spacer(minLength: 8)
             Text(count, format: .number)
-                .font(.system(size: 9.5, weight: .medium).monospacedDigit())
+                .font(.system(size: 12, weight: .medium).monospacedDigit())
         }
         .padding(.leading, icon == nil ? 35 : 12)
         .padding(.trailing, 12)
@@ -195,7 +192,7 @@ struct LibraryScreen: View {
 
     private var noteList: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
+            HStack(spacing: BarMetrics.margin) {
                 HStack(spacing: 0) {
                     TextField("Search…", text: $query)
                         .textFieldStyle(.plain)
@@ -203,34 +200,25 @@ struct LibraryScreen: View {
                         .padding(.horizontal, 5)
                         .focused($searchFocused)
                         .accessibilityLabel("Search notes by filename")
-                    Image(systemName: "magnifyingglass")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 14, height: 14)
-                        .frame(width: 18, height: 18)
+                    BarIconView("magnifyingglass")
+                        .foregroundStyle(BarMetrics.iconColor)
                         .frame(width: 29)
                 }
-                .frame(height: 24.5)
-                .background(.white, in: RoundedRectangle(cornerRadius: 5))
-                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.black.opacity(0.14)))
+                .barControl(cornerRadius: 5)
                 Button(action: newNote) {
-                    Image(systemName: "plus")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 14, height: 14)
-                        .frame(width: 18, height: 18)
-                        .frame(width: 34.5, height: 24)
+                    BarIconView("plus")
+                        .foregroundStyle(BarMetrics.iconColor)
+                        .frame(width: BarMetrics.buttonWidth, height: BarMetrics.controlHeight)
                 }
                 .buttonStyle(.plain)
-                .background(.white, in: RoundedRectangle(cornerRadius: 4.5))
-                .overlay(RoundedRectangle(cornerRadius: 4.5).strokeBorder(.black.opacity(0.14)))
+                .barControl()
                 .help("New Note (⌘N)")
                 .accessibilityLabel("New Note")
                 .keyboardShortcut("n")
                 .disabled(store.isBusy)
             }
-            .padding(.horizontal, 10)
-            .frame(height: 38)
+            .padding(.horizontal, BarMetrics.margin)
+            .frame(height: BarMetrics.height)
             .background(Color(white: 0.97))
             .overlay(alignment: .bottom) { Divider() }
             HStack {
@@ -238,7 +226,7 @@ struct LibraryScreen: View {
                 Spacer()
                 Image(systemName: "chevron.up")
                     .font(.system(size: 12))
-                    .frame(width: 18, height: 18)
+                    .frame(width: BarMetrics.iconBox, height: BarMetrics.iconBox)
             }
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
@@ -293,13 +281,13 @@ struct LibraryScreen: View {
 
     private var content: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
+            HStack(spacing: BarMetrics.margin) {
                 toolbarGroup {
                     toolbarButton("Save (⌘S)", icon: document?.isModified == true ? "square.and.arrow.down.fill" : "square.and.arrow.down",
                                   action: document.map { document in { Task { await document.save() } } })
                     .disabled(document?.isModified != true || document?.isSaving == true)
                     toolbarDivider
-                    toolbarButton("Edit", icon: "pencil", active: mode != .preview) {
+                    toolbarButton("Edit", icon: "highlighter", active: mode != .preview) {
                         mode = mode == .preview ? .source : .preview
                     }
                     .contextMenu {
@@ -330,8 +318,8 @@ struct LibraryScreen: View {
                     })
                 }
             }
-            .padding(.horizontal, 10)
-            .frame(height: 38)
+            .padding(.horizontal, BarMetrics.margin)
+            .frame(height: BarMetrics.height)
             .background(Color(white: 0.97))
             .overlay(alignment: .bottom) { Divider() }
             documentContent
@@ -359,29 +347,15 @@ struct LibraryScreen: View {
         }
     }
 
-    private var toolbarDivider: some View { Divider().frame(height: 24) }
+    private var toolbarDivider: some View { Divider().frame(height: BarMetrics.controlHeight) }
 
     private func toolbarGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        HStack(spacing: 0, content: content)
-            .background(.white, in: RoundedRectangle(cornerRadius: 4.5))
-            .overlay(RoundedRectangle(cornerRadius: 4.5).strokeBorder(.black.opacity(0.14)))
+        HStack(spacing: 0, content: content).barControl()
     }
 
     private func toolbarButton(_ title: String, icon: String, active: Bool = false,
                                action: (() -> Void)? = nil) -> some View {
-        Button { action?() } label: {
-            Image(systemName: icon)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 14, height: 14)
-                .frame(width: 18, height: 18)
-                .foregroundStyle(active ? .orange : Color(white: 0.13))
-                .frame(width: 34.5, height: 24)
-        }
-        .buttonStyle(.plain)
-        .disabled(action == nil)
-        .accessibilityLabel(title)
-        .help(action == nil ? "\(title) — not available yet" : title)
+        BarButton(title: title, icon: icon, active: active, action: action)
     }
 
     private func notebookNameSheet(_ notebook: Notebook?) -> some View {
