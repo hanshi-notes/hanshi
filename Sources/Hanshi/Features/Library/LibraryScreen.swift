@@ -14,6 +14,8 @@ struct LibraryScreen: View {
     @State private var renamingNote: Note?
     @State private var noteName = ""
     @State private var trashingNote: Note?
+    @State private var renamingNotebook: Notebook?
+    @State private var trashingNotebook: Notebook?
     @FocusState private var searchFocused: Bool
 
     private var notebook: Notebook? { store.notebooks.first { $0.id == notebookID } }
@@ -60,7 +62,8 @@ struct LibraryScreen: View {
         .onChange(of: store.notes.map(\.id)) { _, ids in
             if let noteID, !ids.contains(noteID), store.documents[noteID] == nil { self.noteID = nil }
         }
-        .sheet(isPresented: $showingNotebookSheet) { newNotebookSheet }
+        .sheet(isPresented: $showingNotebookSheet) { notebookNameSheet(nil) }
+        .sheet(item: $renamingNotebook) { notebook in notebookNameSheet(notebook) }
         .sheet(isPresented: $showingDestinationSheet) { destinationSheet }
         .sheet(item: $renamingNote) { note in renameNoteSheet(note) }
         .confirmationDialog("Move this note to the Trash?", isPresented: Binding(
@@ -70,6 +73,14 @@ struct LibraryScreen: View {
             Button("Move to Trash", role: .destructive) { Task { await store.trash(note) } }
         } message: { note in
             Text("\(note.name) will be moved to the Trash. Any unsaved changes will be saved first.")
+        }
+        .confirmationDialog("Move this notebook to the Trash?", isPresented: Binding(
+            get: { trashingNotebook != nil },
+            set: { if !$0 { trashingNotebook = nil } }
+        ), presenting: trashingNotebook) { notebook in
+            Button("Move to Trash", role: .destructive) { Task { await store.trash(notebook) } }
+        } message: { notebook in
+            Text("The folder \(notebook.name) and all its contents will be moved to the Trash. Unsaved notes will be saved first.")
         }
         .alert("Library Error", isPresented: Binding(
             get: { store.errorMessage != nil },
@@ -98,7 +109,7 @@ struct LibraryScreen: View {
                         sidebarRow("All Notes", icon: "doc.text.fill", count: store.notes.count,
                                    selected: notebookID == "all")
                     }
-                    Button { showingNotebookSheet = true } label: {
+                    Button { showNewNotebook() } label: {
                         sidebarRow("Notebooks", icon: "list.bullet.rectangle.fill", count: store.notes.count)
                     }
                     .help("New Notebook (⌘⇧N)")
@@ -115,6 +126,16 @@ struct LibraryScreen: View {
                                        selected: notebookID == notebook.id)
                         }
                         .contextMenu {
+                            Button("New Notebook…", action: showNewNotebook)
+                                .disabled(store.isBusy)
+                            Button("Rename…") {
+                                notebookName = notebook.name
+                                renamingNotebook = notebook
+                            }
+                            .disabled(store.isBusy)
+                            Button("Move to Trash", role: .destructive) { trashingNotebook = notebook }
+                                .disabled(store.isBusy)
+                            Divider()
                             Button("Show in Finder") {
                                 NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: notebook.url.path)
                             }
@@ -129,7 +150,7 @@ struct LibraryScreen: View {
         .background(Color(red: 0.12, green: 0.16, blue: 0.18))
         .foregroundStyle(.white)
         .contextMenu {
-            Button("New Notebook…") { showingNotebookSheet = true }
+            Button("New Notebook…") { showNewNotebook() }
                 .disabled(store.isBusy)
             Button("Show Library in Finder") {
                 NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: store.files.root.path)
@@ -363,18 +384,18 @@ struct LibraryScreen: View {
         .help(action == nil ? "\(title) — not available yet" : title)
     }
 
-    private var newNotebookSheet: some View {
+    private func notebookNameSheet(_ notebook: Notebook?) -> some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("New Notebook").font(.title2.bold())
-            Text("Create a folder in your Hanshi library.").foregroundStyle(.secondary)
+            Text(notebook == nil ? "New Notebook" : "Rename Notebook").font(.title2.bold())
+            Text(notebook == nil ? "Create a folder in your Hanshi library." : "Rename this notebook and keep all its contents.").foregroundStyle(.secondary)
             TextField("Notebook name", text: $notebookName)
                 .textFieldStyle(.roundedBorder)
-                .onSubmit(createNotebook)
+                .onSubmit { saveNotebook(notebook) }
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { showingNotebookSheet = false }
+                Button("Cancel", role: .cancel) { showingNotebookSheet = false; renamingNotebook = nil }
                     .keyboardShortcut(.cancelAction)
-                Button("Create", action: createNotebook)
+                Button(notebook == nil ? "Create" : "Rename") { saveNotebook(notebook) }
                     .keyboardShortcut(.defaultAction)
                     .disabled(notebookName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.isBusy)
             }
@@ -444,7 +465,7 @@ struct LibraryScreen: View {
 
     private func newNote() {
         if let notebook { createNote(in: notebook.url) }
-        else if store.notebooks.isEmpty { showingNotebookSheet = true }
+        else if store.notebooks.isEmpty { showNewNotebook() }
         else { showingDestinationSheet = true }
     }
 
@@ -466,12 +487,21 @@ struct LibraryScreen: View {
         document?.editor.requestFocus()
     }
 
-    private func createNotebook() {
-        guard !notebookName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    private func showNewNotebook() {
+        renamingNotebook = nil
+        notebookName = ""
+        showingNotebookSheet = true
+    }
+
+    private func saveNotebook(_ target: Notebook?) {
+        guard !store.isBusy, !notebookName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let name = notebookName
         showingNotebookSheet = false
+        renamingNotebook = nil
         Task {
-            if let id = await store.createNotebook(named: name) {
+            if let target {
+                if await store.rename(target, to: name), notebookID == target.id { document?.editor.requestFocus() }
+            } else if let id = await store.createNotebook(named: name) {
                 notebookID = id
                 noteID = nil
                 notebookName = ""

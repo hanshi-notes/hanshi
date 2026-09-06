@@ -79,14 +79,20 @@ final class NoteStore {
 
     func open(_ note: Note) async {
         guard documents[note.id] == nil else { return }
+        let wasListed = notes.contains { $0.id == note.id }
         do {
             let contents = try await files.readNote(at: note.url)
             guard documents[note.id] == nil else { return }
+            // A notebook may have moved or been trashed while the read was in flight.
+            let currentNote = notes.first { $0.id == note.id }
+            guard currentNote != nil || !wasListed else { return }
             let files = files
-            documents[note.id] = NoteDocument(note: note, contents: contents) { url, text, expected in
+            documents[note.id] = NoteDocument(note: currentNote ?? note, contents: contents) { url, text, expected in
                 try await files.saveNote(at: url, text: text, expected: expected)
             }
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            if !wasListed || notes.contains(where: { $0.id == note.id }) { errorMessage = error.localizedDescription }
+        }
     }
 
     @discardableResult func rename(_ note: Note, to name: String) async -> Bool {
@@ -136,6 +142,51 @@ final class NoteStore {
             guard await document.save() else { return false }
         }
         return !hasUnsavedChanges
+    }
+
+    @discardableResult func rename(_ notebook: Notebook, to name: String) async -> Bool {
+        guard !isBusy else { return false }
+        isBusy = true
+        defer { isBusy = false }
+        while let document = documents(in: notebook).first(where: \.isSaving) {
+            guard await document.save() else { errorMessage = document.errorMessage; return false }
+        }
+        do {
+            let url = try files.renameNotebook(at: notebook.url, to: name)
+            for document in documents(in: notebook) {
+                document.url = url.appendingPathComponent(document.url.lastPathComponent)
+            }
+            if let index = notebooks.firstIndex(where: { $0.id == notebook.id }) {
+                notebooks[index] = Notebook(id: notebook.id, url: url, notes: notebooks[index].notes.map {
+                    Note(id: $0.id, url: url.appendingPathComponent($0.name))
+                })
+            }
+            isBusy = false
+            await refresh()
+            return true
+        } catch { errorMessage = error.localizedDescription; return false }
+    }
+
+    @discardableResult func trash(_ notebook: Notebook) async -> Bool {
+        guard !isBusy else { return false }
+        isBusy = true
+        defer { isBusy = false }
+        // Recheck all sessions after each await: another note may have been edited while saving.
+        while let document = documents(in: notebook).first(where: { $0.isModified || $0.isSaving }) {
+            guard await document.save() else { errorMessage = document.errorMessage; return false }
+        }
+        do {
+            try files.trashNotebook(at: notebook.url)
+            for document in documents(in: notebook) { documents.removeValue(forKey: document.id) }
+            notebooks.removeAll { $0.id == notebook.id }
+            isBusy = false
+            await refresh()
+            return true
+        } catch { errorMessage = error.localizedDescription; return false }
+    }
+
+    private func documents(in notebook: Notebook) -> [NoteDocument] {
+        documents.values.filter { $0.url.deletingLastPathComponent().standardizedFileURL.path == notebook.url.standardizedFileURL.path }
     }
 
     enum CloseAction { case save, discard, cancel }

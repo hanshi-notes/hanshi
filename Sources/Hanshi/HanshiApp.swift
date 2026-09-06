@@ -26,5 +26,8 @@ struct HanshiApp: App {
             CommandGroup(replacing: .newItem) { }
             LibraryViewCommands()
         }
+        Settings {
+            SettingsView()
+        }
     }
 }

@@ -23,6 +23,7 @@ final class MarkdownEditorSession: STTextViewDelegate {
     let textView: STTextView
     private weak var document: NoteDocument?
     private var needsFocus = false
+    private var ligatures = true
 
     init(document: NoteDocument) {
         self.document = document
@@ -52,6 +53,37 @@ final class MarkdownEditorSession: STTextViewDelegate {
         document?.edit(textView.text ?? "")
     }
 
+    func setFont(name: String = "", family: String = "", size: Double) {
+        let font = EditorFont.resolve(name: name, family: family, size: size)
+        guard textView.font != font else { return }
+        textView.font = font
+        textView.gutterView?.font = .monospacedSystemFont(ofSize: max(11, font.pointSize - 3), weight: .regular)
+    }
+
+    func setTypography(lineHeight: Double, ligatures: Bool) {
+        let lineHeight = EditorFont.clampedLineHeight(lineHeight)
+        guard textView.defaultParagraphStyle.lineHeightMultiple != lineHeight || self.ligatures != ligatures else { return }
+        self.ligatures = ligatures
+        let paragraph = textView.defaultParagraphStyle.mutableCopy() as! NSMutableParagraphStyle
+        paragraph.lineHeightMultiple = lineHeight
+        textView.defaultParagraphStyle = paragraph
+        applyWritingAttributes()
+    }
+
+    private func applyWritingAttributes() {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .paragraphStyle: textView.defaultParagraphStyle, .ligature: ligatures ? 1 : 0
+        ]
+        textView.addAttributes(attributes, range: NSRange(location: 0, length: (textView.text ?? "").utf16.count))
+        textView.typingAttributes.merge(attributes) { _, new in new }
+    }
+
+    func textView(_ textView: STTextView, shouldChangeTextIn affectedCharRange: NSTextRange, replacementString: String?) -> Bool {
+        // Selection commands reset typing attributes after notifying the delegate, so restore them just before insertion.
+        textView.typingAttributes[.ligature] = ligatures ? 1 : 0
+        return true
+    }
+
     func requestFocus() {
         needsFocus = true
         focusIfNeeded()
@@ -70,6 +102,7 @@ final class MarkdownEditorSession: STTextViewDelegate {
         guard document?.text == text, textView.text != text else { return }
         let selection = textView.textSelection
         textView.text = text
+        applyWritingAttributes()
         textView.undoManager?.removeAllActions()
         textView.textSelection = NSRange(location: min(selection.location, text.utf16.count), length: 0)
     }
@@ -89,15 +122,26 @@ private final class EditorClipView: NSClipView {
 
 struct MarkdownEditorView: View {
     let document: NoteDocument
+    @AppStorage(EditorFont.familyKey) private var family = ""
+    @AppStorage(EditorFont.sizeKey) private var size = EditorFont.defaultSize
+    @AppStorage(EditorFont.nameKey) private var name = ""
+    @AppStorage(EditorFont.lineHeightKey) private var lineHeight = 1.0
+    @AppStorage(EditorFont.ligaturesKey) private var ligatures = true
 
     var body: some View {
-        EditorRepresentable(session: document.editor, text: document.text)
+        EditorRepresentable(session: document.editor, text: document.text, name: name, family: family,
+                            size: size, lineHeight: lineHeight, ligatures: ligatures)
     }
 }
 
 private struct EditorRepresentable: NSViewRepresentable {
     let session: MarkdownEditorSession
     let text: String
+    let name: String
+    let family: String
+    let size: Double
+    let lineHeight: Double
+    let ligatures: Bool
 
     func makeNSView(context: Context) -> EditorContainerView {
         EditorContainerView()
@@ -111,6 +155,8 @@ private struct EditorRepresentable: NSViewRepresentable {
     func updateNSView(_ container: EditorContainerView, context: Context) {
         container.session = session
         session.synchronize(text)
+        session.setFont(name: name, family: family, size: size)
+        session.setTypography(lineHeight: lineHeight, ligatures: ligatures)
         let scrollView = session.scrollView
         guard scrollView.superview !== container else { return }
         container.subviews.forEach { $0.removeFromSuperview() }

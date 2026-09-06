@@ -96,13 +96,22 @@ nonisolated struct LibraryFiles: Sendable {
         let name = try validatedName(name)
         let filename = name.lowercased().hasSuffix(".md") ? name : name + ".md"
         let destination = url.deletingLastPathComponent().appendingPathComponent(filename)
+        return try moveItem(at: url, to: destination, validate: validateNote)
+    }
+
+    func renameNotebook(at url: URL, to name: String) throws -> URL {
+        let destination = root.appendingPathComponent(try validatedName(name), isDirectory: true)
+        return try moveItem(at: url, to: destination, validate: validateNotebook)
+    }
+
+    private func moveItem(at url: URL, to destination: URL, validate: (URL) throws -> Void) throws -> URL {
         var coordinationError: NSError?
         var result: Result<URL, any Error> = .failure(LibraryError.invalidNote)
         let coordinator = NSFileCoordinator()
         coordinator.coordinate(writingItemAt: url, options: .forMoving,
                                writingItemAt: destination, options: [], error: &coordinationError) { source, target in
             result = Result {
-                try validateNote(source)
+                try validate(source)
                 guard source != target else { return target }
                 coordinator.item(at: source, willMoveTo: target)
                 try FileManager.default.moveItem(at: source, to: target)
@@ -115,11 +124,19 @@ nonisolated struct LibraryFiles: Sendable {
     }
 
     @discardableResult func trashNote(at url: URL) throws -> URL? {
+        try trashItem(at: url, validate: validateNote)
+    }
+
+    @discardableResult func trashNotebook(at url: URL) throws -> URL? {
+        try trashItem(at: url, validate: validateNotebook)
+    }
+
+    private func trashItem(at url: URL, validate: (URL) throws -> Void) throws -> URL? {
         var coordinationError: NSError?
         var result: Result<URL?, any Error> = .failure(LibraryError.invalidNote)
         NSFileCoordinator().coordinate(writingItemAt: url, options: .forDeleting, error: &coordinationError) { source in
             result = Result {
-                try validateNote(source)
+                try validate(source)
                 var trashedURL: NSURL?
                 try FileManager.default.trashItem(at: source, resultingItemURL: &trashedURL)
                 return trashedURL as URL?
@@ -147,6 +164,14 @@ nonisolated struct LibraryFiles: Sendable {
         let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
         guard folderValues.isDirectory == true, folderValues.isSymbolicLink != true,
               values.isRegularFile == true, values.isSymbolicLink != true else { throw LibraryError.invalidNote }
+    }
+
+    private func validateNotebook(_ url: URL) throws {
+        guard url.deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL else {
+            throw LibraryError.invalidNotebook
+        }
+        let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard values.isDirectory == true, values.isSymbolicLink != true else { throw LibraryError.invalidNotebook }
     }
 
     private func contents(at url: URL) throws -> NoteContents {
