@@ -7,6 +7,8 @@ struct LibraryScreen: View {
     @State private var query = ""
     @State private var mode = ContentMode.source
     @State private var isZen = false
+    @State private var sidebarVisible = true
+    @State private var layoutPreviewFocus: Bool?
     @State private var showingNotebookSheet = false
     @State private var showingDestinationSheet = false
     @State private var notebookName = ""
@@ -36,33 +38,53 @@ struct LibraryScreen: View {
 
     private var libraryLayout: some View {
         GeometryReader { geometry in
-            if isZen {
-                documentContent
-            } else {
-                HSplitView {
+            // Keep the document's SwiftUI identity when hiding the library chrome.
+            HSplitView {
+                if !isZen && sidebarVisible {
                     sidebar
                         .frame(minWidth: 140, idealWidth: geometry.size.width * 0.212, maxWidth: 440)
                         .ignoresSafeArea(.container, edges: .top)
+                }
+                if !isZen {
                     noteList
                         .frame(minWidth: 180, idealWidth: geometry.size.width * 0.272, maxWidth: 560)
                         .ignoresSafeArea(.container, edges: .top)
-                    content
-                        .frame(minWidth: 450, idealWidth: geometry.size.width * 0.516)
-                        .ignoresSafeArea(.container, edges: .top)
                 }
+                content
+                    .frame(minWidth: 450, idealWidth: geometry.size.width * 0.516)
+                    .ignoresSafeArea(.container, edges: .top)
             }
         }
         .background(.white)
         .ignoresSafeArea(.container, edges: .top)
         .preferredColorScheme(.light)
         .focusedSceneValue(\.contentMode, $mode)
-        .focusedSceneValue(\.zenMode, $isZen)
+        .focusedSceneValue(\.zenMode, layoutBinding($isZen))
+        .focusedSceneValue(\.notebookSidebarVisible, layoutBinding($sidebarVisible))
         .focusedSceneValue(\.noteDocument, document)
+    }
+
+    private func layoutBinding(_ binding: Binding<Bool>) -> Binding<Bool> {
+        Binding(get: { binding.wrappedValue }, set: { value in
+            // Capture the active panel before NSSplitView rearranges its children.
+            layoutPreviewFocus = mode == .preview || previewSession.textView.window?.firstResponder === previewSession.textView
+            binding.wrappedValue = value
+        })
     }
 
     var body: some View {
         libraryLayout
         .task(id: noteID) { await openSelectedNote() }
+        .task(id: [isZen, sidebarVisible]) {
+            guard let layoutPreviewFocus, let document else { return }
+            self.layoutPreviewFocus = nil
+            if layoutPreviewFocus {
+                previewSession.focusDocumentID = document.id
+                previewSession.focusIfNeeded()
+            } else {
+                document.editor.requestFocus()
+            }
+        }
         .onChange(of: store.notebooks.map(\.id)) { _, ids in
             if notebookID != "all", !ids.contains(notebookID) { notebookID = "all" }
         }
@@ -288,47 +310,49 @@ struct LibraryScreen: View {
 
     private var content: some View {
         VStack(spacing: 0) {
-            HStack(spacing: BarMetrics.margin) {
-                toolbarGroup {
-                    toolbarButton("Save (⌘S)", icon: document?.isModified == true ? "square.and.arrow.down.fill" : "square.and.arrow.down",
-                                  action: document.map { document in { Task { await document.save() } } })
-                    .disabled(document?.isModified != true || document?.isSaving == true)
-                    toolbarDivider
-                    toolbarButton("Edit", icon: "highlighter", active: mode != .preview) {
-                        mode = mode == .preview ? .source : .preview
-                    }
-                    .contextMenu {
-                        ForEach(ContentMode.allCases) { option in
-                            Button(option.rawValue) { mode = option }
+            if !isZen {
+                HStack(spacing: BarMetrics.margin) {
+                    toolbarGroup {
+                        toolbarButton("Save (⌘S)", icon: document?.isModified == true ? "square.and.arrow.down.fill" : "square.and.arrow.down",
+                                      action: document.map { document in { Task { await document.save() } } })
+                        .disabled(document?.isModified != true || document?.isSaving == true)
+                        toolbarDivider
+                        toolbarButton("Edit", icon: "highlighter", active: mode != .preview) {
+                            mode = mode == .preview ? .source : .preview
                         }
+                        .contextMenu {
+                            ForEach(ContentMode.allCases) { option in
+                                Button(option.rawValue) { mode = option }
+                            }
+                        }
+                        toolbarDivider
+                        toolbarButton("Tags", icon: "tag.fill")
+                        toolbarDivider
+                        toolbarButton("Attachments", icon: "paperclip")
                     }
-                    toolbarDivider
-                    toolbarButton("Tags", icon: "tag.fill")
-                    toolbarDivider
-                    toolbarButton("Attachments", icon: "paperclip")
+                    toolbarGroup {
+                        toolbarButton("Favorite", icon: "star")
+                        toolbarDivider
+                        toolbarButton("Pin", icon: "pin.fill")
+                    }
+                    toolbarGroup {
+                        toolbarButton("Move to Trash", icon: "trash.fill")
+                    }
+                    Spacer(minLength: 0)
+                    toolbarGroup {
+                        toolbarButton("Share", icon: "square.and.arrow.up")
+                        toolbarDivider
+                        toolbarButton("Show Note in Finder", icon: "arrow.up.forward.square",
+                                      action: selectedNote.map { note in
+                            { NSWorkspace.shared.activateFileViewerSelecting([note.url]) }
+                        })
+                    }
                 }
-                toolbarGroup {
-                    toolbarButton("Favorite", icon: "star")
-                    toolbarDivider
-                    toolbarButton("Pin", icon: "pin.fill")
-                }
-                toolbarGroup {
-                    toolbarButton("Move to Trash", icon: "trash.fill")
-                }
-                Spacer(minLength: 0)
-                toolbarGroup {
-                    toolbarButton("Share", icon: "square.and.arrow.up")
-                    toolbarDivider
-                    toolbarButton("Show Note in Finder", icon: "arrow.up.forward.square",
-                                  action: selectedNote.map { note in
-                        { NSWorkspace.shared.activateFileViewerSelecting([note.url]) }
-                    })
-                }
+                .padding(.horizontal, BarMetrics.margin)
+                .frame(height: BarMetrics.height)
+                .background(Color(white: 0.97))
+                .overlay(alignment: .bottom) { Divider() }
             }
-            .padding(.horizontal, BarMetrics.margin)
-            .frame(height: BarMetrics.height)
-            .background(Color(white: 0.97))
-            .overlay(alignment: .bottom) { Divider() }
             documentContent
         }
     }
