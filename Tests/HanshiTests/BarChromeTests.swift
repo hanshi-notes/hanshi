@@ -36,6 +36,24 @@ import Testing
     #expect(largest - smallest >= 2, "every symbol was drawn to the same size: \(largestSides)")
 }
 
+@Test @MainActor func barIconsAreDrawnWithASemiboldStroke() throws {
+    _ = NSApplication.shared
+    for symbol in ["magnifyingglass", "star", "paperclip", "plus"] {
+        let regular = Image(systemName: symbol).font(.system(size: BarMetrics.iconSize))
+            .foregroundStyle(BarMetrics.iconColor)
+            .frame(width: BarMetrics.buttonWidth, height: BarMetrics.controlHeight)
+            .background(.white)
+        let bar = BarIconView(symbol)
+            .foregroundStyle(BarMetrics.iconColor)
+            .frame(width: BarMetrics.buttonWidth, height: BarMetrics.controlHeight)
+            .background(.white)
+        let heavy = try render(bar).inked(in: 0..<BarMetrics.buttonWidth)
+        let light = try render(regular).inked(in: 0..<BarMetrics.buttonWidth)
+        #expect(Double(heavy) >= Double(light) * 1.1,
+                "\(symbol) drew \(heavy) dark pixels, the regular weight drew \(light)")
+    }
+}
+
 @Test @MainActor func barButtonsKeepTheirIconAtFullStrengthWhileAFeatureIsPending() throws {
     _ = NSApplication.shared
     for action: (() -> Void)? in [nil, {}] {
@@ -100,6 +118,12 @@ private struct Rendering {
             }
         }
         return box
+    }
+
+    /// Number of pixels in a horizontal slice drawn darker than mid-grey.
+    func inked(in points: Range<Double>) -> Int {
+        let columns = Int(points.lowerBound) * scale..<min(Int(points.upperBound) * scale, bitmap.pixelsWide)
+        return columns.flatMap { x in (0..<bitmap.pixelsHigh).map { luminance(x, $0) } }.filter { $0 < 128 }.count
     }
 
     /// Luminance of the darkest pixel in a horizontal slice, 0 for black and 255 for white.

@@ -10,6 +10,13 @@ final class NoteStore {
     // ponytail: keep opened sessions for this library; evict clean sessions if memory becomes a constraint.
     private(set) var documents: [String: NoteDocument] = [:]
 
+    // The Settings toggle, unless a caller pins it.
+    var usesTitleTemplate: Bool {
+        get { pinnedTitleTemplate ?? NoteTitle.isEnabled }
+        set { pinnedTitleTemplate = newValue }
+    }
+    @ObservationIgnored private var pinnedTitleTemplate: Bool?
+
     var hasUnsavedChanges: Bool { documents.values.contains { $0.isModified || $0.isSaving } }
 
     init(root: URL = URL.documentsDirectory.appendingPathComponent("hanshi", isDirectory: true)) {
@@ -52,10 +59,12 @@ final class NoteStore {
         isBusy = true
         defer { isBusy = false }
         do {
-            let url = try await files.createNotebook(named: name)
+            let url = try await files.createNotebook(named: name).resolvingSymlinksInPath()
             isBusy = false
             await refresh()
-            return notebooks.first { $0.url == url }?.id
+            // The loaded URLs come from FileManager, so compare them resolved: a library reached
+            // through a symbolic link spells the same folder two ways.
+            return notebooks.first { $0.url.resolvingSymlinksInPath() == url }?.id
         } catch {
             errorMessage = error.localizedDescription
             return nil
@@ -67,10 +76,12 @@ final class NoteStore {
         isBusy = true
         defer { isBusy = false }
         do {
-            let url = try await files.createNote(in: folder)
+            let url = try await files.createNote(in: folder,
+                                                 text: usesTitleTemplate ? NoteTitle.template : "")
+                .resolvingSymlinksInPath()
             isBusy = false
             await refresh()
-            return notes.first { $0.url == url }?.id
+            return notes.first { $0.url.resolvingSymlinksInPath() == url }?.id
         } catch {
             errorMessage = error.localizedDescription
             return nil
@@ -87,9 +98,13 @@ final class NoteStore {
             let currentNote = notes.first { $0.id == note.id }
             guard currentNote != nil || !wasListed else { return }
             let files = files
-            documents[note.id] = NoteDocument(note: currentNote ?? note, contents: contents) { url, text, expected in
+            let document = NoteDocument(note: currentNote ?? note, contents: contents) { url, text, expected in
                 try await files.saveNote(at: url, text: text, expected: expected)
             }
+            document.didSave = { [weak self] document, previousText in
+                await self?.renameToMatchHeading(document, previousText: previousText)
+            }
+            documents[note.id] = document
         } catch {
             if !wasListed || notes.contains(where: { $0.id == note.id }) { errorMessage = error.localizedDescription }
         }
@@ -114,6 +129,23 @@ final class NoteStore {
             errorMessage = error.localizedDescription
             return false
         }
+    }
+
+    /// Keeps the file named after the note's heading, until someone renames the file by hand.
+    private func renameToMatchHeading(_ document: NoteDocument, previousText: String) async {
+        guard usesTitleTemplate, !isBusy,
+              let note = notes.first(where: { $0.id == document.id }),
+              NoteTitle.filename(for: previousText) == note.name || NoteTitle.isDefault(note.name),
+              let heading = NoteTitle.filename(for: document.text), heading != note.name else { return }
+        await rename(note, to: availableName(heading, like: note))
+    }
+
+    /// `name`, or the first "name (n)" free in the note's notebook, so a shared heading cannot
+    /// fail the save with a name clash.
+    private func availableName(_ name: String, like note: Note) -> String {
+        let taken = Set(notes.filter { $0.notebookName == note.notebookName && $0.id != note.id }.map(\.name))
+        guard taken.contains(name) else { return name }
+        return (1...).lazy.map { "\(name) (\($0))" }.first { !taken.contains($0) } ?? name
     }
 
     @discardableResult func trash(_ note: Note) async -> Bool {
@@ -158,7 +190,7 @@ final class NoteStore {
             }
             if let index = notebooks.firstIndex(where: { $0.id == notebook.id }) {
                 notebooks[index] = Notebook(id: notebook.id, url: url, notes: notebooks[index].notes.map {
-                    Note(id: $0.id, url: url.appendingPathComponent($0.name))
+                    Note(id: $0.id, url: url.appendingPathComponent($0.url.lastPathComponent))
                 })
             }
             isBusy = false

@@ -34,7 +34,29 @@ struct SettingsView: View {
         TabView {
             EditorSettingsView()
                 .tabItem { Label("Appearance", systemImage: "eyeglasses") }
+            NoteSettingsView()
+                .tabItem { Label("Notes", systemImage: "doc.text") }
         }
+    }
+}
+
+struct NoteSettingsView: View {
+    @AppStorage(NoteTitle.templateKey) private var usesTitleTemplate = true
+
+    var body: some View {
+        Form {
+            Section("New Notes") {
+                Toggle("Start with a \"# Note\" heading", isOn: $usesTitleTemplate)
+                    .toggleStyle(.checkbox)
+                Text(usesTitleTemplate
+                     ? "The file is renamed to follow the heading, until you rename the note yourself."
+                     : "New notes open empty and keep the name they were created with.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 520, height: 440)
     }
 }
 

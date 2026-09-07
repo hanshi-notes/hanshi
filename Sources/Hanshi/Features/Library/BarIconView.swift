@@ -11,12 +11,12 @@ enum BarMetrics {
     static let iconColor = Color.black
 }
 
-// Font sizing preserves each symbol's optical size and stroke weight.
+// Font sizing preserves each symbol's optical size; semibold matches Notable's stroke weight.
 struct BarIconView: View {
     let name: String
     init(_ name: String) { self.name = name }
     var body: some View {
-        Image(systemName: name).font(.system(size: BarMetrics.iconSize))
+        Image(systemName: name).font(.system(size: BarMetrics.iconSize, weight: .semibold))
     }
 }
 

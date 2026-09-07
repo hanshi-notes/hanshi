@@ -19,7 +19,7 @@ import Testing
     await store.refresh()
     let first = try #require(store.notes.first)
     let second = try #require(store.notes.last)
-    #expect(first.name == "2.md")
+    #expect(first.name == "2")
     let host = NSHostingView(rootView: LibraryScreen().environment(store))
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 650),
                           styleMask: [.titled], backing: .buffered, defer: false)

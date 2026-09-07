@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Hanshi
 
-@Test func libraryCreatesFoldersAndNumberedNotesWithoutLosingFiles() async throws {
+@Test func libraryCreatesFoldersAndNamedNotesWithoutLosingFiles() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
     let files = LibraryFiles(root: root)
@@ -11,15 +11,21 @@ import Testing
     let work = try await files.createNotebook(named: "trabajo")
     #expect(try await files.load().map(\.name) == ["trabajo", "tutorial"])
     let first = try await files.createNote(in: tutorial)
-    #expect(first.lastPathComponent == "01.md")
+    #expect(first.lastPathComponent == "Note.md")
     try Data("# Preserve this note".utf8).write(to: first)
-    #expect(try await files.createNote(in: tutorial).lastPathComponent == "02.md")
-    #expect(try await files.createNote(in: work).lastPathComponent == "01.md")
+    let second = try await files.createNote(in: tutorial)
+    #expect(second.lastPathComponent == "Note (1).md")
+    #expect(try await files.createNote(in: work).lastPathComponent == "Note.md")
     #expect(try String(contentsOf: first, encoding: .utf8) == "# Preserve this note")
-    try Data().write(to: tutorial.appendingPathComponent("99.md"))
-    #expect(try await files.createNote(in: tutorial).lastPathComponent == "100.md")
+    // A freed name is taken again instead of counting past it.
+    try FileManager.default.removeItem(at: second)
+    #expect(try await files.createNote(in: tutorial).lastPathComponent == "Note (1).md")
+    #expect(try await files.createNote(in: tutorial).lastPathComponent == "Note (2).md")
     let reloaded = try await files.load()
-    #expect(reloaded.first { $0.name == "tutorial" }?.notes.map(\.name) == ["01.md", "02.md", "99.md", "100.md"])
+    // The library lists notes by the name it shows, without the .md the files keep on disk.
+    #expect(reloaded.first { $0.name == "tutorial" }?.notes.map(\.name) == ["Note (1)", "Note (2)", "Note"])
+    #expect(reloaded.first { $0.name == "tutorial" }?.notes.map { $0.url.lastPathComponent }
+            == ["Note (1).md", "Note (2).md", "Note.md"])
     #expect(try String(contentsOf: first, encoding: .utf8) == "# Preserve this note")
     await #expect(throws: (any Error).self) { try await files.createNotebook(named: "../escape") }
     await #expect(throws: (any Error).self) { try await files.createNotebook(named: "tutorial") }
@@ -29,8 +35,8 @@ import Testing
     async let createdA = files.createNote(in: work)
     async let createdB = files.createNote(in: work)
     let concurrentFiles = try await [createdA, createdB]
-    #expect(Set(concurrentFiles.map(\.lastPathComponent)) == ["02.md", "03.md"])
-    let originalID = try #require(reloaded.first { $0.name == "tutorial" }?.notes.first?.id)
+    #expect(Set(concurrentFiles.map(\.lastPathComponent)) == ["Note (1).md", "Note (2).md"])
+    let originalID = try #require(reloaded.first { $0.name == "tutorial" }?.notes.first { $0.name == "Note" }?.id)
     try FileManager.default.moveItem(at: first, to: tutorial.appendingPathComponent("renamed.md"))
-    #expect(try await files.load().flatMap(\.notes).first { $0.name == "renamed.md" }?.id == originalID)
+    #expect(try await files.load().flatMap(\.notes).first { $0.name == "renamed" }?.id == originalID)
 }

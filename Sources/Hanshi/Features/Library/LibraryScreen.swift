@@ -245,7 +245,7 @@ struct LibraryScreen: View {
                             .help("\(note.notebookName) / \(note.name)")
                             .contextMenu {
                                 Button("Rename…") {
-                                    noteName = note.url.deletingPathExtension().lastPathComponent
+                                    noteName = note.name
                                     renamingNote = note
                                 }
                                 .disabled(store.isBusy)

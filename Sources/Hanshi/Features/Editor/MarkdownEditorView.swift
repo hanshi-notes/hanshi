@@ -34,6 +34,10 @@ final class MarkdownEditorSession: STTextViewDelegate {
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = textView
         textView.text = document.text
+        // A note still holding just the new-note template opens ready to type over its title.
+        if document.text == NoteTitle.template {
+            textView.textSelection = NSRange(location: NoteTitle.template.utf16.count - 1, length: 0)
+        }
         textView.isHorizontallyResizable = false
         textView.highlightSelectedLine = true
         textView.showsLineNumbers = true

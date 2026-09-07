@@ -12,6 +12,9 @@ final class NoteDocument: Identifiable {
     @ObservationIgnored private var saveTask: Task<Bool, Never>?
     @ObservationIgnored private let write: @Sendable (URL, String, Data) async throws -> NoteContents
     @ObservationIgnored lazy var editor = MarkdownEditorSession(document: self)
+    // The store renames the file to match a changed heading; the text it had before this save says
+    // whether the file was still following that heading.
+    @ObservationIgnored var didSave: ((NoteDocument, _ previousText: String) async -> Void)?
 
     init(note: Note, contents: NoteContents,
          write: @escaping @Sendable (URL, String, Data) async throws -> NoteContents) {
@@ -32,6 +35,7 @@ final class NoteDocument: Identifiable {
     @discardableResult func save() async -> Bool {
         if let saveTask { return await saveTask.value }
         guard isModified else { return true }
+        let previousText = saved.text
         isSaving = true
         errorMessage = nil
         let task = Task {
@@ -49,6 +53,7 @@ final class NoteDocument: Identifiable {
         let success = await task.value
         saveTask = nil
         isSaving = false
+        if success { await didSave?(self, previousText) }
         return success
     }
 

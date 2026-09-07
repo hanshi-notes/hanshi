@@ -130,3 +130,79 @@ func renamingRejectsInvalidNamesWithoutChangingTheNote(name: String) async throw
     #expect(try String(contentsOf: note.url, encoding: .utf8) == "keep")
     #expect(try String(contentsOf: outside, encoding: .utf8) == "outside")
 }
+
+@Test(arguments: [("# Título\ntexto", "Título"), ("texto\n# Título", nil), ("#Título", nil),
+                  ("# \n", nil), ("# a/b:c", "a-b-c"), ("# .oculta. ", "oculta"),
+                  ("# " + String(repeating: "x", count: 200), String(repeating: "x", count: 100))])
+func headingNamesAreSafeToPutOnDisk(text: String, expected: String?) {
+    #expect(NoteTitle.filename(for: text) == expected)
+}
+
+@Test @MainActor func newNotesFollowTheirHeadingUntilTheFileIsRenamedByHand() async throws {
+    let library = TestLibrary()
+    _ = try await library.files.load()
+    let folder = try await library.files.createNotebook(named: "Notes")
+    let store = NoteStore(root: library.root)
+    store.usesTitleTemplate = true
+    await store.refresh()
+    // A temporary directory is reached through a symbolic link: the new note must still be found.
+    let id = try #require(await store.createNote(in: folder))
+    let note = try #require(store.notes.first { $0.id == id })
+    #expect(note.name == "Note")
+    #expect(try String(contentsOf: note.url, encoding: .utf8) == "# Note\n")
+    await store.open(note)
+    let document = try #require(store.documents[id])
+    document.edit("# Recetas / pan: 😀\nprimera línea\n")
+    #expect(await document.save())
+    #expect(document.url.lastPathComponent == "Recetas - pan- 😀.md")
+    #expect(store.notes.first { $0.id == id }?.name == "Recetas - pan- 😀")
+    #expect(!FileManager.default.fileExists(atPath: note.url.path))
+    #expect(try String(contentsOf: document.url, encoding: .utf8) == "# Recetas / pan: 😀\nprimera línea\n")
+    // Renaming the file by hand unhooks it: the heading stops moving it.
+    #expect(await store.rename(try #require(store.notes.first { $0.id == id }), to: "cocina"))
+    document.edit("# Otra cosa\n")
+    #expect(await document.save())
+    #expect(document.url.lastPathComponent == "cocina.md")
+    #expect(store.notes.first { $0.id == id }?.name == "cocina")
+    #expect(store.errorMessage == nil)
+}
+
+@Test @MainActor func headingRenamesSidestepNamesAlreadyTakenInTheNotebook() async throws {
+    let library = TestLibrary()
+    _ = try await library.files.load()
+    let folder = try await library.files.createNotebook(named: "Notes")
+    let store = NoteStore(root: library.root)
+    store.usesTitleTemplate = true
+    await store.refresh()
+    let first = try #require(await store.createNote(in: folder))
+    let second = try #require(await store.createNote(in: folder))
+    #expect(store.notes.first { $0.id == second }?.name == "Note (1)")
+    for id in [first, second] { await store.open(try #require(store.notes.first { $0.id == id })) }
+    for id in [first, second] {
+        let document = try #require(store.documents[id])
+        document.edit("# Recetas\n")
+        #expect(await document.save())
+    }
+    #expect(store.documents[first]?.url.lastPathComponent == "Recetas.md")
+    #expect(store.documents[second]?.url.lastPathComponent == "Recetas (1).md")
+    #expect(store.errorMessage == nil)
+    #expect(try await library.files.load().flatMap(\.notes).map(\.name).sorted() == ["Recetas", "Recetas (1)"])
+}
+
+@Test @MainActor func withTheTemplateOffNewNotesAreBlankAndKeepTheirName() async throws {
+    let library = TestLibrary()
+    _ = try await library.files.load()
+    let folder = try await library.files.createNotebook(named: "Notes")
+    let store = NoteStore(root: library.root)
+    store.usesTitleTemplate = false
+    await store.refresh()
+    let id = try #require(await store.createNote(in: folder))
+    let note = try #require(store.notes.first { $0.id == id })
+    #expect(try Data(contentsOf: note.url).isEmpty)
+    await store.open(note)
+    let document = try #require(store.documents[id])
+    document.edit("# Recetas\n")
+    #expect(await document.save())
+    #expect(document.url.lastPathComponent == "Note.md")
+    #expect(store.notes.first { $0.id == id }?.name == "Note")
+}

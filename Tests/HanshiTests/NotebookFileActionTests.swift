@@ -26,7 +26,7 @@ import Testing
     #expect(Set(renamed.notes.map(\.id)) == Set(notebook.notes.map(\.id)))
     #expect(renamed.notes.allSatisfy { $0.notebookName == renamed.name })
     #expect(store.documents[first.id] === document)
-    #expect(document.url == renamed.url.appendingPathComponent(first.name))
+    #expect(document.url == renamed.url.appendingPathComponent(first.url.lastPathComponent))
     #expect(editor.textSelection == selection)
     #expect(document.text == "draft original")
     #expect(document.isModified)
@@ -122,7 +122,8 @@ func notebookNamesRejectInvalidInput(name: String) async throws {
     #expect(otherDocument.text == "other draft")
     #expect(otherDocument.isModified)
     for note in notebook.notes {
-        #expect(try String(contentsOf: trash.appendingPathComponent(note.name), encoding: .utf8) == "draft \(note.name)")
+        #expect(try String(contentsOf: trash.appendingPathComponent(note.url.lastPathComponent),
+                           encoding: .utf8) == "draft \(note.name)")
     }
 }
 

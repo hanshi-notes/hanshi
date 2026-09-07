@@ -28,7 +28,7 @@ nonisolated struct LibraryFiles: Sendable {
         return folder
     }
 
-    @concurrent func createNote(in folder: URL) async throws -> URL {
+    @concurrent func createNote(in folder: URL, text: String = "") async throws -> URL {
         guard folder.deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL else {
             throw LibraryError.invalidNotebook
         }
@@ -36,23 +36,16 @@ nonisolated struct LibraryFiles: Sendable {
         guard values.isDirectory == true, values.isSymbolicLink != true else {
             throw LibraryError.invalidNotebook
         }
-        let numbers = try children(of: folder).compactMap { url -> Int? in
-            let stem = url.deletingPathExtension().lastPathComponent
-            guard url.pathExtension.lowercased() == "md", !stem.isEmpty,
-                  stem.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }) else { return nil }
-            guard let number = Int(stem) else { throw LibraryError.numberLimit }
-            return number
-        }
-        var number = numbers.max() ?? 0
+        // ponytail: tries "Note", "Note (1)", … in order; O(notes in the notebook) per creation.
+        var number = 0
         while number < Int.max {
-            number += 1
-            let filename = (number < 10 ? "0" : "") + String(number) + ".md"
-            let url = folder.appendingPathComponent(filename)
+            let name = number == 0 ? NoteTitle.defaultName : "\(NoteTitle.defaultName) (\(number))"
+            let url = folder.appendingPathComponent(name + ".md")
             do {
-                try Data().write(to: url, options: .withoutOverwriting)
+                try Data(text.utf8).write(to: url, options: .withoutOverwriting)
                 return url
             } catch let error as CocoaError where error.code == .fileWriteFileExists {
-                continue
+                number += 1
             }
         }
         throw LibraryError.numberLimit
@@ -206,7 +199,7 @@ nonisolated enum LibraryError: LocalizedError {
         switch self {
         case .invalidName: "Use a name without slashes, colons, control characters, or a leading dot."
         case .invalidNotebook: "The notebook is no longer available. Refresh the library and choose a folder inside it."
-        case .numberLimit: "This notebook has reached the supported numeric filename limit."
+        case .numberLimit: "This notebook cannot hold another new note."
         case .invalidNote: "Choose a Markdown file inside a notebook in this library. Symbolic links are not supported."
         case .invalidEncoding: "This note is not valid UTF-8. Its contents have not been changed."
         case .noteConflict: "This note changed on disk. Your edits are still open. Save a copy to keep both versions, or reload from disk to discard your edits."

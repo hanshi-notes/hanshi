@@ -356,3 +356,19 @@ private actor PausedWriter {
         #expect(editor.textSelection.location < "First line".utf16.count)
     }
 }
+
+@Test @MainActor func aNewNotesCursorWaitsAtTheEndOfItsHeading() throws {
+    _ = NSApplication.shared
+    func document(_ text: String) -> NoteDocument {
+        NoteDocument(note: Note(id: text, url: URL(filePath: "/unused.md")),
+                     contents: NoteContents(data: Data(text.utf8), text: text, fileID: text)) { _, _, _ in
+            NoteContents(data: Data(), text: "", fileID: text)
+        }
+    }
+    // "# Note|\n": typing replaces nothing and continues the title.
+    #expect(document(NoteTitle.template).editor.textView.textSelection == NSRange(location: 6, length: 0))
+    for text in ["", "# Note\nwritten already\n", "written already\n"] {
+        #expect(document(text).editor.textView.textSelection == NSRange(location: 0, length: 0),
+                "an edited note should open at its start, not mid-text")
+    }
+}
