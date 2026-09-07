@@ -254,50 +254,52 @@ private actor PausedWriter {
     #expect(try String(contentsOf: note.url, encoding: .utf8) == document.text)
 }
 
-@Test @MainActor func editorColorsMarkdownAndEmbeddedLanguagesWithoutChangingText() async throws {
-    _ = NSApplication.shared
-    let library = TestLibrary()
-    let source = "---\ntitle: \"Example\"\n---\n# Heading\n\n```swift\nlet message = \"Hello\"\n```\n"
-    let note = try await library.note(source)
-    let store = NoteStore(root: library.root)
-    await store.open(note)
-    let document = try #require(store.documents[note.id])
-    let editor = document.editor.textView
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
-                          styleMask: [.titled], backing: .buffered, defer: false)
-    window.isReleasedWhenClosed = false
-    window.contentView = document.editor.scrollView
-    defer { window.contentView = nil; window.close() }
-    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-    while foregroundColor(in: editor, at: (source as NSString).range(of: "Heading").location) == nil,
-          ContinuousClock.now < deadline {
-        try await Task.sleep(for: .milliseconds(10))
-    }
-    for (token, expectedColor) in [("Heading", NSColor.systemBlue), ("let", .systemPurple), ("\"Hello\"", .systemRed), ("\"Example\"", .systemRed)] {
-        let color = try #require(foregroundColor(in: editor, at: (source as NSString).range(of: token).location))
-        #expect(color == expectedColor, "Color for \(token)")
-    }
-    #expect(document.text == source)
-    #expect(!document.isModified)
-    #expect(editor.undoManager?.canUndo == false)
+extension AppKitWindowTests {
+    @Test @MainActor func editorColorsMarkdownAndEmbeddedLanguagesWithoutChangingText() async throws {
+        _ = NSApplication.shared
+        let library = TestLibrary()
+        let source = "---\ntitle: \"Example\"\n---\n# Heading\n\n```swift\nlet message = \"Hello\"\n```\n"
+        let note = try await library.note(source)
+        let store = NoteStore(root: library.root)
+        await store.open(note)
+        let document = try #require(store.documents[note.id])
+        let editor = document.editor.textView
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = document.editor.scrollView
+        defer { window.contentView = nil; window.close() }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while foregroundColor(in: editor, at: (source as NSString).range(of: "Heading").location) == nil,
+              ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        for (token, expectedColor) in [("Heading", NSColor.systemBlue), ("let", .systemPurple), ("\"Hello\"", .systemRed), ("\"Example\"", .systemRed)] {
+            let color = try #require(foregroundColor(in: editor, at: (source as NSString).range(of: token).location))
+            #expect(color == expectedColor, "Color for \(token)")
+        }
+        #expect(document.text == source)
+        #expect(!document.isModified)
+        #expect(editor.undoManager?.canUndo == false)
 
-    // Replace and edit again before earlier highlighting completes: only the final source may win.
-    editor.undoManager?.groupsByEvent = false
-    editor.insertText("# Temporary\n", replacementRange: NSRange(location: 0, length: source.utf16.count))
-    let finalSource = "# Final 😀\n\n```swift\n// comment\nlet value = 42\n```\n"
-    editor.insertText(finalSource, replacementRange: NSRange(location: 0, length: (editor.text ?? "").utf16.count))
-    let commentOffset = (finalSource as NSString).range(of: "// comment").location
-    let numberOffset = (finalSource as NSString).range(of: "42").location
-    let finalDeadline = ContinuousClock.now.advanced(by: .seconds(5))
-    while foregroundColor(in: editor, at: commentOffset) != .secondaryLabelColor
-            || foregroundColor(in: editor, at: numberOffset) != .systemOrange {
-        if ContinuousClock.now >= finalDeadline { break }
-        try await Task.sleep(for: .milliseconds(10))
+        // Replace and edit again before earlier highlighting completes: only the final source may win.
+        editor.undoManager?.groupsByEvent = false
+        editor.insertText("# Temporary\n", replacementRange: NSRange(location: 0, length: source.utf16.count))
+        let finalSource = "# Final 😀\n\n```swift\n// comment\nlet value = 42\n```\n"
+        editor.insertText(finalSource, replacementRange: NSRange(location: 0, length: (editor.text ?? "").utf16.count))
+        let commentOffset = (finalSource as NSString).range(of: "// comment").location
+        let numberOffset = (finalSource as NSString).range(of: "42").location
+        let finalDeadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while foregroundColor(in: editor, at: commentOffset) != .secondaryLabelColor
+                || foregroundColor(in: editor, at: numberOffset) != .systemOrange {
+            if ContinuousClock.now >= finalDeadline { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(foregroundColor(in: editor, at: commentOffset) == .secondaryLabelColor)
+        #expect(foregroundColor(in: editor, at: numberOffset) == .systemOrange)
+        #expect(document.text == finalSource)
+        #expect(document.isModified)
     }
-    #expect(foregroundColor(in: editor, at: commentOffset) == .secondaryLabelColor)
-    #expect(foregroundColor(in: editor, at: numberOffset) == .systemOrange)
-    #expect(document.text == finalSource)
-    #expect(document.isModified)
 }
 
 @MainActor private func foregroundColor(in editor: STTextView, at offset: Int) -> NSColor? {
@@ -310,50 +312,52 @@ private actor PausedWriter {
     return color
 }
 
-@Test(arguments: ["", "First line\nLast 😀 e\u{301}", "First line\nLast line\n", "\n\n"])
-@MainActor func clickingBlankEditorSpaceFocusesTheEndOfTheDocument(source: String) throws {
-    _ = NSApplication.shared
-    let document = NoteDocument(note: Note(id: "click", url: URL(filePath: "/unused.md")),
-                                contents: NoteContents(data: Data(source.utf8), text: source, fileID: "click")) {
-        _, _, _ in throw CocoaError(.fileWriteUnknown)
-    }
-    let scrollView = document.editor.scrollView
-    let editor = document.editor.textView
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
-                          styleMask: [.titled], backing: .buffered, defer: false)
-    window.isReleasedWhenClosed = false
-    window.contentView = scrollView
-    defer { window.contentView = nil; window.close() }
-    scrollView.layoutSubtreeIfNeeded()
-    editor.layoutSubtreeIfNeeded()
-    let clip = scrollView.contentView
-    let parent = try #require(scrollView.superview)
-    try #require(editor.frame.maxY < clip.bounds.maxY - 40)
+extension AppKitWindowTests {
+    @Test(arguments: ["", "First line\nLast 😀 e\u{301}", "First line\nLast line\n", "\n\n"])
+    @MainActor func clickingBlankEditorSpaceFocusesTheEndOfTheDocument(source: String) throws {
+        _ = NSApplication.shared
+        let document = NoteDocument(note: Note(id: "click", url: URL(filePath: "/unused.md")),
+                                    contents: NoteContents(data: Data(source.utf8), text: source, fileID: "click")) {
+            _, _, _ in throw CocoaError(.fileWriteUnknown)
+        }
+        let scrollView = document.editor.scrollView
+        let editor = document.editor.textView
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = scrollView
+        defer { window.contentView = nil; window.close() }
+        scrollView.layoutSubtreeIfNeeded()
+        editor.layoutSubtreeIfNeeded()
+        let clip = scrollView.contentView
+        let parent = try #require(scrollView.superview)
+        try #require(editor.frame.maxY < clip.bounds.maxY - 40)
 
-    for x in [10.0, clip.bounds.midX, clip.bounds.maxX - 10] {
-        window.makeFirstResponder(nil)
-        editor.textSelection = NSRange(location: 0, length: min(2, source.utf16.count))
-        let location = clip.convert(NSPoint(x: x, y: clip.bounds.maxY - 20), to: nil)
-        let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: location,
-                                                  modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
-                                                  context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
-        let hit = try #require(scrollView.hitTest(parent.convert(location, from: nil)))
-        hit.mouseDown(with: event)
-        #expect(window.firstResponder === editor)
-        #expect(editor.textSelection == NSRange(location: source.utf16.count, length: 0))
-        #expect(document.text == source)
-        #expect(!document.isModified)
-    }
+        for x in [10.0, clip.bounds.midX, clip.bounds.maxX - 10] {
+            window.makeFirstResponder(nil)
+            editor.textSelection = NSRange(location: 0, length: min(2, source.utf16.count))
+            let location = clip.convert(NSPoint(x: x, y: clip.bounds.maxY - 20), to: nil)
+            let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: location,
+                                                      modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                                      context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            let hit = try #require(scrollView.hitTest(parent.convert(location, from: nil)))
+            hit.mouseDown(with: event)
+            #expect(window.firstResponder === editor)
+            #expect(editor.textSelection == NSRange(location: source.utf16.count, length: 0))
+            #expect(document.text == source)
+            #expect(!document.isModified)
+        }
 
-    // Clicking the first text line must still use the editor's normal caret placement.
-    if !source.isEmpty, !source.hasPrefix("\n") {
-        let location = editor.convert(NSPoint(x: (editor.gutterView?.frame.width ?? 0) + 2, y: 5), to: nil)
-        let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: location,
-                                                  modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
-                                                  context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
-        let hit = try #require(scrollView.hitTest(parent.convert(location, from: nil)))
-        hit.mouseDown(with: event)
-        #expect(editor.textSelection.location < "First line".utf16.count)
+        // Clicking the first text line must still use the editor's normal caret placement.
+        if !source.isEmpty, !source.hasPrefix("\n") {
+            let location = editor.convert(NSPoint(x: (editor.gutterView?.frame.width ?? 0) + 2, y: 5), to: nil)
+            let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: location,
+                                                      modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                                      context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            let hit = try #require(scrollView.hitTest(parent.convert(location, from: nil)))
+            hit.mouseDown(with: event)
+            #expect(editor.textSelection.location < "First line".utf16.count)
+        }
     }
 }
 
@@ -389,42 +393,44 @@ private actor PausedWriter {
     #expect(SyntaxTheme(rawValue: "not a theme") == nil)
 }
 
-@Test @MainActor func switchingTheSyntaxThemeRecolorsAnOpenNote() async throws {
-    _ = NSApplication.shared
-    let library = TestLibrary()
-    let source = "# Heading\n\n```swift\nlet message = \"Hello\"\nmessage.hasPrefix(\"H\")\n```\n"
-    let note = try await library.note(source)
-    let store = NoteStore(root: library.root)
-    await store.open(note)
-    let document = try #require(store.documents[note.id])
-    let editor = document.editor.textView
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
-                          styleMask: [.titled], backing: .buffered, defer: false)
-    window.isReleasedWhenClosed = false
-    window.contentView = document.editor.scrollView
-    defer { window.contentView = nil; window.close() }
-    let heading = (source as NSString).range(of: "Heading").location
-    let keyword = (source as NSString).range(of: "let").location
-    try await until { foregroundColor(in: editor, at: heading) == .systemBlue }
+extension AppKitWindowTests {
+    @Test @MainActor func switchingTheSyntaxThemeRecolorsAnOpenNote() async throws {
+        _ = NSApplication.shared
+        let library = TestLibrary()
+        let source = "# Heading\n\n```swift\nlet message = \"Hello\"\nmessage.hasPrefix(\"H\")\n```\n"
+        let note = try await library.note(source)
+        let store = NoteStore(root: library.root)
+        await store.open(note)
+        let document = try #require(store.documents[note.id])
+        let editor = document.editor.textView
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = document.editor.scrollView
+        defer { window.contentView = nil; window.close() }
+        let heading = (source as NSString).range(of: "Heading").location
+        let keyword = (source as NSString).range(of: "let").location
+        try await until { foregroundColor(in: editor, at: heading) == .systemBlue }
 
-    // No theme spells out "function.call": it has to resolve through "function".
-    let call = (source as NSString).range(of: "hasPrefix").location
-    #expect(foregroundColor(in: editor, at: call) == SyntaxTheme.system.colors["function"])
+        // No theme spells out "function.call": it has to resolve through "function".
+        let call = (source as NSString).range(of: "hasPrefix").location
+        #expect(foregroundColor(in: editor, at: call) == SyntaxTheme.system.colors["function"])
 
-    document.editor.setSyntaxTheme(.solarized)
-    try await until { foregroundColor(in: editor, at: heading) == SyntaxTheme.solarized.colors["text.title"] }
-    #expect(foregroundColor(in: editor, at: keyword) == SyntaxTheme.solarized.colors["keyword"])
-    #expect(foregroundColor(in: editor, at: call) == SyntaxTheme.solarized.colors["function"])
-    #expect(document.text == source)
-    #expect(!document.isModified)
-    #expect(editor.undoManager?.canUndo == false)
+        document.editor.setSyntaxTheme(.solarized)
+        try await until { foregroundColor(in: editor, at: heading) == SyntaxTheme.solarized.colors["text.title"] }
+        #expect(foregroundColor(in: editor, at: keyword) == SyntaxTheme.solarized.colors["keyword"])
+        #expect(foregroundColor(in: editor, at: call) == SyntaxTheme.solarized.colors["function"])
+        #expect(document.text == source)
+        #expect(!document.isModified)
+        #expect(editor.undoManager?.canUndo == false)
 
-    // Editing after the switch keeps painting with the chosen theme.
-    editor.insertText("# Other\n", replacementRange: NSRange(location: 0, length: (source as NSString).range(of: "\n").location + 1))
-    try await until { foregroundColor(in: editor, at: 2) == SyntaxTheme.solarized.colors["text.title"] }
+        // Editing after the switch keeps painting with the chosen theme.
+        editor.insertText("# Other\n", replacementRange: NSRange(location: 0, length: (source as NSString).range(of: "\n").location + 1))
+        try await until { foregroundColor(in: editor, at: 2) == SyntaxTheme.solarized.colors["text.title"] }
 
-    document.editor.setSyntaxTheme(.system)
-    try await until { foregroundColor(in: editor, at: 2) == .systemBlue }
+        document.editor.setSyntaxTheme(.system)
+        try await until { foregroundColor(in: editor, at: 2) == .systemBlue }
+    }
 }
 
 @MainActor private func until(sourceLocation: SourceLocation = #_sourceLocation, _ condition: () -> Bool) async throws {
@@ -485,32 +491,34 @@ private actor PausedWriter {
     #expect(SyntaxTheme.color(for: "unheard.of", in: colors) == nil)
 }
 
-@Test @MainActor func fencedBlocksKeepTheirOwnColorAndThemesBringTheirPageColor() async throws {
-    _ = NSApplication.shared
-    let library = TestLibrary()
-    let source = "```\n# fenced\n```\n\n# outside\n"
-    let note = try await library.note(source)
-    let store = NoteStore(root: library.root)
-    await store.open(note)
-    let document = try #require(store.documents[note.id])
-    let editor = document.editor.textView
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
-                          styleMask: [.titled], backing: .buffered, defer: false)
-    window.isReleasedWhenClosed = false
-    window.contentView = document.editor.scrollView
-    defer { window.contentView = nil; window.close() }
-    let inside = (source as NSString).range(of: "fenced").location
-    let outside = (source as NSString).range(of: "outside").location
-    try await until { foregroundColor(in: editor, at: outside) == SyntaxTheme.system.colors["text.title"] }
-    // The block's own color must survive: its contents are captured as "none" over the literal.
-    #expect(foregroundColor(in: editor, at: inside) == SyntaxTheme.system.colors["text.literal"])
-    #expect(foregroundColor(in: editor, at: inside) != SyntaxTheme.system.colors["text.title"])
+extension AppKitWindowTests {
+    @Test @MainActor func fencedBlocksKeepTheirOwnColorAndThemesBringTheirPageColor() async throws {
+        _ = NSApplication.shared
+        let library = TestLibrary()
+        let source = "```\n# fenced\n```\n\n# outside\n"
+        let note = try await library.note(source)
+        let store = NoteStore(root: library.root)
+        await store.open(note)
+        let document = try #require(store.documents[note.id])
+        let editor = document.editor.textView
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = document.editor.scrollView
+        defer { window.contentView = nil; window.close() }
+        let inside = (source as NSString).range(of: "fenced").location
+        let outside = (source as NSString).range(of: "outside").location
+        try await until { foregroundColor(in: editor, at: outside) == SyntaxTheme.system.colors["text.title"] }
+        // The block's own color must survive: its contents are captured as "none" over the literal.
+        #expect(foregroundColor(in: editor, at: inside) == SyntaxTheme.system.colors["text.literal"])
+        #expect(foregroundColor(in: editor, at: inside) != SyntaxTheme.system.colors["text.title"])
 
-    #expect(editor.backgroundColor == .textBackgroundColor)
-    document.editor.setSyntaxTheme(.solarized)
-    #expect(editor.backgroundColor == SyntaxTheme.solarized.background)
-    #expect(SyntaxTheme.solarized.background != nil)
-    #expect(SyntaxTheme.system.background == nil, "the System theme follows the window's own background")
-    document.editor.setSyntaxTheme(.system)
-    #expect(editor.backgroundColor == .textBackgroundColor)
+        #expect(editor.backgroundColor == .textBackgroundColor)
+        document.editor.setSyntaxTheme(.solarized)
+        #expect(editor.backgroundColor == SyntaxTheme.solarized.background)
+        #expect(SyntaxTheme.solarized.background != nil)
+        #expect(SyntaxTheme.system.background == nil, "the System theme follows the window's own background")
+        document.editor.setSyntaxTheme(.system)
+        #expect(editor.backgroundColor == .textBackgroundColor)
+    }
 }

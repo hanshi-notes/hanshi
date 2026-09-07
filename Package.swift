@@ -1,22 +1,40 @@
-// swift-tools-version: 6.2
+// swift-tools-version: 6.3
 import PackageDescription
+import Foundation
 
 let package = Package(
     name: "Hanshi",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v15)],
     products: [.executable(name: "Hanshi", targets: ["Hanshi"])],
     dependencies: [
+        .package(url: "https://github.com/swiftlang/swift-cmark", revision: "7898f1b3e4befeecee56cb4a3bc8eebd2cb63219"),
+        .package(url: "https://github.com/PhraseHQ/HighlightKit", revision: "524c185b0553756498c1b6a1765e8d119c4623a6"),
+        .package(url: "https://github.com/PhraseHQ/SwaTex", revision: "2b38d0b9b9b9466ac1302ab93b37f3b90b8c74fc"),
         .package(url: "https://github.com/krzyzanowskim/STTextView", exact: "2.4.0"),
         .package(url: "https://github.com/krzyzanowskim/STTextView-Plugin-TreeSitter",
                  revision: "346bbce977ce6a485ff9ad5696bebbe8790241e9")
     ],
     targets: [
+        .systemLibrary(name: "CMermaid"),
+        .target(name: "CMarkdown", dependencies: [
+            .product(name: "cmark-gfm", package: "swift-cmark"),
+            .product(name: "cmark-gfm-extensions", package: "swift-cmark")
+        ]),
         .executableTarget(name: "Hanshi", dependencies: [
+            "CMarkdown", "CMermaid",
+            .product(name: "cmark-gfm", package: "swift-cmark"),
+            .product(name: "cmark-gfm-extensions", package: "swift-cmark"),
+            .product(name: "HighlightKit", package: "HighlightKit"),
+            .product(name: "SwaTex", package: "SwaTex"),
+            .product(name: "SwaTexRender", package: "SwaTex"),
             .product(name: "STTextView", package: "STTextView"),
             .product(name: "STTextView-Plugin-TreeSitter", package: "STTextView-Plugin-TreeSitter")
-        ], swiftSettings: [
+        ], resources: [.copy("Resources/ThirdPartyNotices")], swiftSettings: [
             .defaultIsolation(MainActor.self),
             .enableUpcomingFeature("NonisolatedNonsendingByDefault")
+        ], linkerSettings: [
+            .unsafeFlags(["-L" + URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent(".build/mermaid/release").path]),
+            .linkedFramework("Security"), .linkedFramework("SystemConfiguration"), .linkedLibrary("c++")
         ]),
         .testTarget(name: "HanshiTests", dependencies: ["Hanshi"])
     ],

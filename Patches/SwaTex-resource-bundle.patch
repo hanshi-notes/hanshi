@@ -1,0 +1,12 @@
+diff --git a/Sources/SwaTexRender/KaTeXFontProvider.swift b/Sources/SwaTexRender/KaTeXFontProvider.swift
+--- a/Sources/SwaTexRender/KaTeXFontProvider.swift
++++ b/Sources/SwaTexRender/KaTeXFontProvider.swift
+@@ -109,6 +109,7 @@ public final class KaTeXFontProvider: Sendable {
+     private static func makeUnitFont(_ fontId: FontId) -> CTFont {
+         if let name = resourceName(for: fontId),
+-            let url = Bundle.module.url(
++            let url = (Bundle.main.url(forResource: "SwaTex_SwaTexRender", withExtension: "bundle")
++                .flatMap(Bundle.init(url:)) ?? Bundle.module).url(
+                 forResource: name, withExtension: "ttf", subdirectory: "Fonts"),
+             let data = try? Data(contentsOf: url),
+             let descriptor = CTFontManagerCreateFontDescriptorFromData(data as CFData)

@@ -14,6 +14,8 @@ final class MarkdownTextView: STTextView {
 }
 
 final class MarkdownEditorSession: STTextViewDelegate {
+    // A native snapshot avoids transcoding Cocoa strings on every scroll event.
+    private(set) var displayedText: String
     let scrollView: NSScrollView
     let textView: MarkdownTextView
     private weak var document: NoteDocument?
@@ -27,6 +29,8 @@ final class MarkdownEditorSession: STTextViewDelegate {
 
     init(document: NoteDocument) {
         self.document = document
+        displayedText = document.text
+        displayedText.makeContiguousUTF8()
         scrollView = MarkdownTextView.scrollableTextView()
         // STTextView's factory always installs its own class as the document view.
         textView = scrollView.documentView as! MarkdownTextView
@@ -62,7 +66,10 @@ final class MarkdownEditorSession: STTextViewDelegate {
     }
 
     func textViewDidChangeText(_ notification: Notification) {
-        document?.edit(textView.text ?? "")
+        var text = textView.text ?? ""
+        text.makeContiguousUTF8()
+        if displayedText != text { displayedText = text }
+        document?.edit(displayedText)
     }
 
     func setFont(name: String = "", family: String = "", size: Double) {
@@ -155,8 +162,10 @@ final class MarkdownEditorSession: STTextViewDelegate {
     }
 
     func synchronize(_ text: String) {
-        guard document?.text == text, textView.text != text else { return }
+        guard document?.text == text, displayedText != text else { return }
         let selection = textView.textSelection
+        displayedText = text
+        displayedText.makeContiguousUTF8()
         textView.text = text
         applyWritingAttributes()
         textView.undoManager?.removeAllActions()

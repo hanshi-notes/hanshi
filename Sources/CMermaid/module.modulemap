@@ -1,0 +1,5 @@
+module CMermaid [system] {
+    header "mermaid.h"
+    link "hanshi_mermaid"
+    export *
+}

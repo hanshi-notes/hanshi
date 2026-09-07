@@ -1,5 +1,5 @@
 {
-  "originHash" : "9101bdea8d1fffa79aa38ed1dc882d80b9e7c3197dbdbc4763a12bc2551a0263",
+  "originHash" : "f23f17d1fdcbde433d4df5df4762f9845c9f3e7cb83a046f7eb9d8724ad4bad9",
   "pins" : [
     {
       "identity" : "coretextswift",
@@ -8,6 +8,14 @@
       "state" : {
         "revision" : "833177201d6421e6322296f39fce6ff6ae52618a",
         "version" : "0.2.0"
+      }
+    },
+    {
+      "identity" : "highlightkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/PhraseHQ/HighlightKit",
+      "state" : {
+        "revision" : "524c185b0553756498c1b6a1765e8d119c4623a6"
       }
     },
     {
@@ -34,6 +42,22 @@
       "location" : "https://github.com/krzyzanowskim/STTextView-Plugin-TreeSitter",
       "state" : {
         "revision" : "346bbce977ce6a485ff9ad5696bebbe8790241e9"
+      }
+    },
+    {
+      "identity" : "swatex",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/PhraseHQ/SwaTex",
+      "state" : {
+        "revision" : "2b38d0b9b9b9466ac1302ab93b37f3b90b8c74fc"
+      }
+    },
+    {
+      "identity" : "swift-cmark",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-cmark",
+      "state" : {
+        "revision" : "7898f1b3e4befeecee56cb4a3bc8eebd2cb63219"
       }
     },
     {

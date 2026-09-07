@@ -10,6 +10,8 @@ struct LibraryScreen: View {
     @State private var showingNotebookSheet = false
     @State private var showingDestinationSheet = false
     @State private var notebookName = ""
+    @State private var previewSession = MarkdownPreviewSession()
+    @State private var openingFromPreview = false
     @State private var openingNoteID: String?
     @State private var renamingNote: Note?
     @State private var noteName = ""
@@ -17,6 +19,11 @@ struct LibraryScreen: View {
     @State private var renamingNotebook: Notebook?
     @State private var trashingNotebook: Notebook?
     @FocusState private var searchFocused: Bool
+
+    init(mode: ContentMode = .source, noteID: String? = nil) {
+        _mode = State(initialValue: mode)
+        _noteID = State(initialValue: noteID)
+    }
 
     private var notebook: Notebook? { store.notebooks.first { $0.id == notebookID } }
     private var selectedNote: Note? { store.notes.first { $0.id == noteID } }
@@ -328,7 +335,10 @@ struct LibraryScreen: View {
 
     @ViewBuilder private var documentContent: some View {
         if let document {
-            NoteEditorContentView(document: document, files: store.files, mode: mode)
+            NoteEditorContentView(document: document, files: store.files, mode: mode,
+                                  libraryID: store.sessionID, resourceGeneration: store.resourceGeneration,
+                                  preview: previewSession)
+                .onAppear { previewSession.openNote = openPreviewNote }
         } else if noteID != nil {
             VStack(spacing: 12) {
                 if openingNoteID == noteID { ProgressView("Opening note…") }
@@ -444,6 +454,9 @@ struct LibraryScreen: View {
     }
 
     private func selectNote(_ id: String?) {
+        openingFromPreview = false
+        previewSession.pendingHeading = nil
+        previewSession.focusDocumentID = nil
         searchFocused = false
         noteID = id
         if id != nil {
@@ -458,7 +471,20 @@ struct LibraryScreen: View {
         await store.open(selectedNote)
         guard !Task.isCancelled, noteID == selectedNote.id else { return }
         openingNoteID = nil
-        document?.editor.requestFocus()
+        if !openingFromPreview { document?.editor.requestFocus() }
+    }
+
+    private func openPreviewNote(_ url: URL, fragment: String?) -> Bool {
+        guard let note = store.notes.first(where: { $0.url.resolvingSymlinksInPath() == url.resolvingSymlinksInPath() }) else { return false }
+        openingFromPreview = true
+        previewSession.pendingHeading = fragment
+        previewSession.focusDocumentID = note.id
+        searchFocused = false
+        if noteID == note.id {
+            if let fragment { previewSession.navigateHeading(fragment) }
+            previewSession.focusIfNeeded()
+        } else { noteID = note.id }
+        return true
     }
 
     private func showNewNotebook() {

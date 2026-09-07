@@ -5,6 +5,9 @@ struct NoteEditorContentView: View {
     @Bindable var document: NoteDocument
     let files: LibraryFiles
     let mode: ContentMode
+    var libraryID: UUID? = nil
+    var resourceGeneration = 0
+    @State var preview = MarkdownPreviewSession()
     @State private var confirmingReload = false
 
     var body: some View {
@@ -23,12 +26,12 @@ struct NoteEditorContentView: View {
             if mode == .split {
                 HSplitView {
                     MarkdownEditorView(document: document).frame(minWidth: 200)
-                    previewPlaceholder.frame(minWidth: 200)
+                    previewContent.frame(minWidth: 200)
                 }
             } else if mode == .source {
                 MarkdownEditorView(document: document)
             } else {
-                previewPlaceholder
+                previewContent
             }
         }
         .confirmationDialog("Discard your edits and reload this note from disk?", isPresented: $confirmingReload) {
@@ -38,10 +41,22 @@ struct NoteEditorContentView: View {
         }
     }
 
-    private var previewPlaceholder: some View {
-        Text("Preview is not available yet. Choose Editor to edit Markdown.")
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    private var previewContent: some View {
+        VStack(spacing: 0) {
+            if let message = preview.message {
+                HStack {
+                    Text(message).font(.callout).textSelection(.enabled)
+                    Spacer()
+                    Button("Retry") { preview.retry() }
+                }
+                .padding(10)
+                .background(.yellow.opacity(0.12))
+            }
+            MarkdownPreviewView(session: preview, snapshot: PreviewSnapshot(
+                library: libraryID ?? preview.identity, documentID: document.id, text: document.text,
+                url: document.url, root: files.root, resources: resourceGeneration
+            ), document: document, split: mode == .split)
+        }
     }
 
     private func saveCopy() {

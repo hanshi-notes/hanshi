@@ -7,6 +7,8 @@ final class NoteStore {
     private(set) var isBusy = false
     var errorMessage: String?
     let files: LibraryFiles
+    let sessionID = UUID()
+    private(set) var resourceGeneration = 0
     // ponytail: keep opened sessions for this library; evict clean sessions if memory becomes a constraint.
     private(set) var documents: [String: NoteDocument] = [:]
 
@@ -35,7 +37,7 @@ final class NoteStore {
     func refresh() async {
         guard !isBusy else { return }
         isBusy = true
-        defer { isBusy = false }
+        defer { isBusy = false; resourceGeneration += 1 }
         do {
             let loaded = try await files.load()
             notebooks = loaded.map { notebook in
