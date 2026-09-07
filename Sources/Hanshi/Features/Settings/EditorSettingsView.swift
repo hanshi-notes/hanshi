@@ -7,11 +7,33 @@ enum EditorFont {
     static let lineHeightKey = "editorLineHeight"
     static let ligaturesKey = "editorLigatures"
     static let sizeKey = "editorFontSize"
+    static let gutterKey = "editorShowsGutter"
+    static let tabWidthKey = "editorTabWidth"
+    static let indentsWithTabsKey = "editorIndentsWithTabs"
+    static let letterSpacingKey = "editorLetterSpacing"
+    static let invisiblesKey = "editorShowsInvisibles"
+    static let letterSpacingRange = 0.8...2.0
+    static let defaultTabWidth = 4
+    static let tabWidthRange = 1...8
     static let defaultSize = 14.0
     static let sizeRange = 10.0...144.0
 
     static func clampedSize(_ size: Double) -> Double {
         size.isFinite ? min(max(size, sizeRange.lowerBound), sizeRange.upperBound) : defaultSize
+    }
+
+    static var showsGutter: Bool { UserDefaults.standard.object(forKey: gutterKey) as? Bool ?? true }
+    static var tabWidth: Int { clampedTabWidth(UserDefaults.standard.object(forKey: tabWidthKey) as? Int ?? defaultTabWidth) }
+    static var indentsWithTabs: Bool { UserDefaults.standard.bool(forKey: indentsWithTabsKey) }
+
+    static var showsInvisibles: Bool { UserDefaults.standard.bool(forKey: invisiblesKey) }
+
+    static func clampedLetterSpacing(_ value: Double) -> Double {
+        value.isFinite ? min(max(value, letterSpacingRange.lowerBound), letterSpacingRange.upperBound) : 1
+    }
+
+    static func clampedTabWidth(_ width: Int) -> Int {
+        min(max(width, tabWidthRange.lowerBound), tabWidthRange.upperBound)
     }
 
     static func clampedLineHeight(_ value: Double) -> Double {
@@ -34,9 +56,54 @@ struct SettingsView: View {
         TabView {
             EditorSettingsView()
                 .tabItem { Label("Appearance", systemImage: "eyeglasses") }
+            TextEditingSettingsView()
+                .tabItem { Label("Editing", systemImage: "text.alignleft") }
             NoteSettingsView()
                 .tabItem { Label("Notes", systemImage: "doc.text") }
         }
+    }
+}
+
+struct TextEditingSettingsView: View {
+    @AppStorage(EditorFont.gutterKey) private var showsGutter = true
+    @AppStorage(EditorFont.indentsWithTabsKey) private var indentsWithTabs = false
+    @AppStorage(EditorFont.tabWidthKey) private var tabWidth = EditorFont.defaultTabWidth
+    @AppStorage(EditorFont.invisiblesKey) private var showsInvisibles = false
+
+    private var boundedTabWidth: Binding<Int> {
+        Binding(get: { EditorFont.clampedTabWidth(tabWidth) }, set: { tabWidth = EditorFont.clampedTabWidth($0) })
+    }
+
+    var body: some View {
+        Form {
+            Section("Text Editing") {
+                Picker("Prefer indent using", selection: $indentsWithTabs) {
+                    Text("Spaces").tag(false)
+                    Text("Tabs").tag(true)
+                }
+                LabeledContent("Tab width") {
+                    HStack {
+                        TextField("Tab width", value: boundedTabWidth, format: .number.grouping(.never))
+                            .labelsHidden()
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 40)
+                        Stepper("Tab width", value: boundedTabWidth, in: EditorFont.tabWidthRange)
+                            .labelsHidden()
+                        Text("spaces").foregroundStyle(.secondary)
+                    }
+                }
+                Toggle("Show gutter", isOn: $showsGutter)
+                    .toggleStyle(.switch)
+                Toggle("Show invisible characters", isOn: $showsInvisibles)
+                    .toggleStyle(.switch)
+                    .help("Shows tabs, spaces and line breaks.")
+            }
+            Text("A tab is as wide as this many spaces, whichever key inserts it.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .formStyle(.grouped)
+        .frame(width: 520, height: 440)
     }
 }
 
@@ -66,6 +133,7 @@ struct EditorSettingsView: View {
     @AppStorage(EditorFont.nameKey) private var name = ""
     @AppStorage(EditorFont.lineHeightKey) private var lineHeight = 1.0
     @AppStorage(EditorFont.ligaturesKey) private var ligatures = true
+    @AppStorage(EditorFont.letterSpacingKey) private var letterSpacing = 1.0
     @AppStorage(SyntaxTheme.key) private var theme = SyntaxTheme.system.rawValue
 
     private var boundedSize: Binding<Double> {
@@ -125,6 +193,20 @@ struct EditorSettingsView: View {
                         .frame(width: 56)
                         Text("×").foregroundStyle(.secondary)
                         Stepper("Line height", value: $lineHeight, in: 1...3, step: 0.1)
+                            .labelsHidden()
+                    }
+                }
+                LabeledContent("Letter spacing") {
+                    HStack {
+                        TextField("Letter spacing", value: Binding(
+                            get: { EditorFont.clampedLetterSpacing(letterSpacing) },
+                            set: { letterSpacing = EditorFont.clampedLetterSpacing($0) }
+                        ), format: .number.precision(.fractionLength(2)))
+                        .labelsHidden()
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 56)
+                        Text("×").foregroundStyle(.secondary)
+                        Stepper("Letter spacing", value: $letterSpacing, in: EditorFont.letterSpacingRange, step: 0.05)
                             .labelsHidden()
                     }
                 }

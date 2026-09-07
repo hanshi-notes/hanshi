@@ -2,20 +2,36 @@ import AppKit
 import SwiftUI
 import STTextView
 
+// STTextView always inserts a tab character; Settings can ask for spaces instead.
+final class MarkdownTextView: STTextView {
+    var indentsWithTabs = false
+    var indentWidth = EditorFont.defaultTabWidth
+
+    override func insertTab(_ sender: Any?) {
+        guard !indentsWithTabs else { return super.insertTab(sender) }
+        insertText(String(repeating: " ", count: indentWidth), replacementRange: .notFound)
+    }
+}
+
 final class MarkdownEditorSession: STTextViewDelegate {
     let scrollView: NSScrollView
-    let textView: STTextView
+    let textView: MarkdownTextView
     private weak var document: NoteDocument?
     private var needsFocus = false
     private var ligatures = true
+    private var lineHeight = 1.0
+    private var letterSpacing = 1.0
+    private var tabWidth = EditorFont.tabWidth
     private let syntax = MarkdownSyntaxPlugin.Handle()
     private var theme = SyntaxTheme.saved
 
     init(document: NoteDocument) {
         self.document = document
-        scrollView = STTextView.scrollableTextView()
-        // STTextView's factory always installs an STTextView as its document view.
-        textView = scrollView.documentView as! STTextView
+        scrollView = MarkdownTextView.scrollableTextView()
+        // STTextView's factory always installs its own class as the document view.
+        textView = scrollView.documentView as! MarkdownTextView
+        // The text always wraps, so there is nothing to scroll sideways.
+        scrollView.hasHorizontalScroller = false
         scrollView.contentView = EditorClipView()
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = textView
@@ -26,7 +42,10 @@ final class MarkdownEditorSession: STTextViewDelegate {
         }
         textView.isHorizontallyResizable = false
         textView.highlightSelectedLine = true
-        textView.showsLineNumbers = true
+        textView.showsLineNumbers = EditorFont.showsGutter
+        textView.showsInvisibleCharacters = EditorFont.showsInvisibles
+        textView.indentsWithTabs = EditorFont.indentsWithTabs
+        textView.indentWidth = tabWidth
         textView.usesFontPanel = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
@@ -38,6 +57,8 @@ final class MarkdownEditorSession: STTextViewDelegate {
         textView.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
         textView.gutterView?.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         textView.textDelegate = self
+        // Give the tab its width now: nothing else applies it until a setting changes.
+        applyParagraphStyle()
     }
 
     func textViewDidChangeText(_ notification: Notification) {
@@ -48,7 +69,27 @@ final class MarkdownEditorSession: STTextViewDelegate {
         let font = EditorFont.resolve(name: name, family: family, size: size)
         guard textView.font != font else { return }
         textView.font = font
-        textView.gutterView?.font = .monospacedSystemFont(ofSize: max(11, font.pointSize - 3), weight: .regular)
+        setGutterFont()
+        // A tab is measured in spaces of the editor's font, so it moves with the font.
+        applyParagraphStyle()
+    }
+
+    func setGutter(_ visible: Bool) {
+        guard textView.showsLineNumbers != visible else { return }
+        textView.showsLineNumbers = visible
+        setGutterFont()
+    }
+
+    func setIndentation(width: Int, usesTabs: Bool) {
+        textView.indentsWithTabs = usesTabs
+        textView.indentWidth = width
+        guard tabWidth != width else { return }
+        tabWidth = width
+        applyParagraphStyle()
+    }
+
+    private func setGutterFont() {
+        textView.gutterView?.font = .monospacedSystemFont(ofSize: max(11, textView.font.pointSize - 3), weight: .regular)
     }
 
     func setSyntaxTheme(_ theme: SyntaxTheme) {
@@ -58,19 +99,36 @@ final class MarkdownEditorSession: STTextViewDelegate {
         syntax.coordinator?.setTheme(theme)
     }
 
-    func setTypography(lineHeight: Double, ligatures: Bool) {
+    func setTypography(lineHeight: Double, ligatures: Bool, letterSpacing: Double = 1) {
         let lineHeight = EditorFont.clampedLineHeight(lineHeight)
-        guard textView.defaultParagraphStyle.lineHeightMultiple != lineHeight || self.ligatures != ligatures else { return }
+        let letterSpacing = EditorFont.clampedLetterSpacing(letterSpacing)
+        guard self.lineHeight != lineHeight || self.ligatures != ligatures
+                || self.letterSpacing != letterSpacing else { return }
+        self.lineHeight = lineHeight
         self.ligatures = ligatures
+        self.letterSpacing = letterSpacing
+        applyParagraphStyle()
+    }
+
+    func setInvisibles(_ visible: Bool) {
+        guard textView.showsInvisibleCharacters != visible else { return }
+        textView.showsInvisibleCharacters = visible
+    }
+
+    private func applyParagraphStyle() {
         let paragraph = textView.defaultParagraphStyle.mutableCopy() as! NSMutableParagraphStyle
         paragraph.lineHeightMultiple = lineHeight
+        paragraph.defaultTabInterval = (" " as NSString).size(withAttributes: [.font: textView.font]).width * Double(tabWidth)
+        paragraph.tabStops = []
         textView.defaultParagraphStyle = paragraph
         applyWritingAttributes()
     }
 
     private func applyWritingAttributes() {
+        // Letter spacing is a multiple of the font's own space, so it holds across font sizes.
+        let kern = (letterSpacing - 1) * (" " as NSString).size(withAttributes: [.font: textView.font]).width
         let attributes: [NSAttributedString.Key: Any] = [
-            .paragraphStyle: textView.defaultParagraphStyle, .ligature: ligatures ? 1 : 0
+            .paragraphStyle: textView.defaultParagraphStyle, .ligature: ligatures ? 1 : 0, .kern: kern
         ]
         textView.addAttributes(attributes, range: NSRange(location: 0, length: (textView.text ?? "").utf16.count))
         textView.typingAttributes.merge(attributes) { _, new in new }
@@ -126,11 +184,18 @@ struct MarkdownEditorView: View {
     @AppStorage(EditorFont.lineHeightKey) private var lineHeight = 1.0
     @AppStorage(EditorFont.ligaturesKey) private var ligatures = true
     @AppStorage(SyntaxTheme.key) private var theme = SyntaxTheme.system.rawValue
+    @AppStorage(EditorFont.gutterKey) private var showsGutter = true
+    @AppStorage(EditorFont.tabWidthKey) private var tabWidth = EditorFont.defaultTabWidth
+    @AppStorage(EditorFont.indentsWithTabsKey) private var indentsWithTabs = false
+    @AppStorage(EditorFont.letterSpacingKey) private var letterSpacing = 1.0
+    @AppStorage(EditorFont.invisiblesKey) private var showsInvisibles = false
 
     var body: some View {
         EditorRepresentable(session: document.editor, text: document.text, name: name, family: family,
                             size: size, lineHeight: lineHeight, ligatures: ligatures,
-                            theme: SyntaxTheme(rawValue: theme) ?? .system)
+                            theme: SyntaxTheme(rawValue: theme) ?? .system, showsGutter: showsGutter,
+                            tabWidth: EditorFont.clampedTabWidth(tabWidth), indentsWithTabs: indentsWithTabs,
+                            letterSpacing: letterSpacing, showsInvisibles: showsInvisibles)
     }
 }
 
@@ -143,6 +208,11 @@ private struct EditorRepresentable: NSViewRepresentable {
     let lineHeight: Double
     let ligatures: Bool
     let theme: SyntaxTheme
+    let showsGutter: Bool
+    let tabWidth: Int
+    let indentsWithTabs: Bool
+    let letterSpacing: Double
+    let showsInvisibles: Bool
 
     func makeNSView(context: Context) -> EditorContainerView {
         EditorContainerView()
@@ -157,8 +227,11 @@ private struct EditorRepresentable: NSViewRepresentable {
         container.session = session
         session.synchronize(text)
         session.setFont(name: name, family: family, size: size)
-        session.setTypography(lineHeight: lineHeight, ligatures: ligatures)
+        session.setTypography(lineHeight: lineHeight, ligatures: ligatures, letterSpacing: letterSpacing)
         session.setSyntaxTheme(theme)
+        session.setGutter(showsGutter)
+        session.setIndentation(width: tabWidth, usesTabs: indentsWithTabs)
+        session.setInvisibles(showsInvisibles)
         let scrollView = session.scrollView
         guard scrollView.superview !== container else { return }
         container.subviews.forEach { $0.removeFromSuperview() }

@@ -175,3 +175,93 @@ import Testing
     #expect(defaults.string(forKey: EditorFont.nameKey) == "Helvetica-BoldOblique")
     #expect(defaults.double(forKey: EditorFont.sizeKey) == 18.5)
 }
+
+@Test @MainActor func textEditingSettingsReachTheEditor() throws {
+    _ = NSApplication.shared
+    let document = NoteDocument(note: Note(id: "editing", url: URL(filePath: "/unused.md")),
+                                contents: NoteContents(data: Data(), text: "", fileID: "editing")) { _, _, _ in
+        NoteContents(data: Data(), text: "", fileID: "editing")
+    }
+    let session = document.editor
+    let editor = session.textView
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = session.scrollView
+    defer { window.contentView = nil; window.close() }
+    window.layoutIfNeeded()
+
+    session.setGutter(false)
+    #expect(editor.showsLineNumbers == false)
+    session.setGutter(true)
+    #expect(editor.showsLineNumbers)
+    #expect(editor.gutterView != nil, "the gutter must come back with its own font")
+
+    // A tab is as wide as `width` spaces in the editor's font, and follows the font.
+    session.setFont(size: 14)
+    session.setIndentation(width: 4, usesTabs: false)
+    let space = (" " as NSString).size(withAttributes: [.font: editor.font]).width
+    #expect(abs(editor.defaultParagraphStyle.defaultTabInterval - space * 4) < 0.01)
+    #expect(editor.defaultParagraphStyle.tabStops.isEmpty)
+    session.setIndentation(width: 8, usesTabs: false)
+    #expect(abs(editor.defaultParagraphStyle.defaultTabInterval - space * 8) < 0.01)
+    session.setFont(size: 28)
+    let wideSpace = (" " as NSString).size(withAttributes: [.font: editor.font]).width
+    #expect(abs(editor.defaultParagraphStyle.defaultTabInterval - wideSpace * 8) < 0.01)
+    #expect(wideSpace > space)
+
+    // Tab inserts spaces or a tab character, as Settings asks.
+    session.setIndentation(width: 3, usesTabs: false)
+    editor.insertTab(nil)
+    #expect(editor.text == "   ")
+    session.setIndentation(width: 3, usesTabs: true)
+    editor.insertTab(nil)
+    #expect(editor.text == "   \t")
+
+    // The text always wraps, so a horizontal scroller would only take up room.
+    #expect(session.scrollView.hasHorizontalScroller == false)
+}
+
+@Test @MainActor func editingSettingsClampAndFallBackToTheirDefaults() {
+    #expect(EditorFont.clampedTabWidth(0) == 1)
+    #expect(EditorFont.clampedTabWidth(99) == 8)
+    #expect(EditorFont.clampedTabWidth(4) == 4)
+}
+
+@Test @MainActor func letterSpacingAndInvisibleCharactersFollowTheirSettings() throws {
+    _ = NSApplication.shared
+    let original = "Office fi fl\n"
+    let document = NoteDocument(note: Note(id: "spacing", url: URL(filePath: "/unused.md")),
+                                contents: NoteContents(data: Data(original.utf8), text: original, fileID: "spacing")) {
+        _, _, _ in throw CocoaError(.fileWriteUnknown)
+    }
+    let session = document.editor
+    let editor = session.textView
+    let storage = try #require((editor.textContentManager as? NSTextContentStorage)?.textStorage)
+    let space = (" " as NSString).size(withAttributes: [.font: editor.font]).width
+
+    session.setTypography(lineHeight: 1, ligatures: true, letterSpacing: 1)
+    #expect(storage.attribute(.kern, at: 0, effectiveRange: nil) as? Double == 0)
+
+    // Spacing is a multiple of the font's space, so it survives a font change.
+    session.setTypography(lineHeight: 1, ligatures: true, letterSpacing: 1.5)
+    let kern = try #require(storage.attribute(.kern, at: 0, effectiveRange: nil) as? Double)
+    #expect(abs(kern - space * 0.5) < 0.01)
+    editor.insertText("ffi", replacementRange: NSRange(location: 0, length: 0))
+    let typed = try #require(storage.attribute(.kern, at: 0, effectiveRange: nil) as? Double)
+    #expect(abs(typed - space * 0.5) < 0.01, "text typed after the change keeps the spacing")
+    #expect(document.text == "ffi" + original)
+
+    // Out-of-range values are clamped instead of stretching the text arbitrarily.
+    session.setTypography(lineHeight: 1, ligatures: true, letterSpacing: 99)
+    let clamped = try #require(storage.attribute(.kern, at: 0, effectiveRange: nil) as? Double)
+    #expect(abs(clamped - space * (EditorFont.letterSpacingRange.upperBound - 1)) < 0.01)
+    #expect(EditorFont.clampedLetterSpacing(.nan) == 1)
+    #expect(EditorFont.clampedLetterSpacing(0) == EditorFont.letterSpacingRange.lowerBound)
+
+    #expect(editor.showsInvisibleCharacters == false)
+    session.setInvisibles(true)
+    #expect(editor.showsInvisibleCharacters)
+    session.setInvisibles(false)
+    #expect(editor.showsInvisibleCharacters == false)
+}
