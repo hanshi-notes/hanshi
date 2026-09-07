@@ -372,3 +372,145 @@ private actor PausedWriter {
                 "an edited note should open at its start, not mid-text")
     }
 }
+
+@Test @MainActor func everySyntaxThemePaintsTheSameTokensAsTheSystemOne() {
+    let expected = Set(SyntaxTheme.system.colors.keys)
+    #expect(expected.contains("keyword") && expected.contains("text.title"))
+    for theme in SyntaxTheme.allCases {
+        #expect(Set(theme.colors.keys) == expected, "\(theme.name) covers different tokens")
+        #expect(theme.swatch.count == 8, "\(theme.name) shows \(theme.swatch.count) swatch colors")
+        #expect(!theme.name.isEmpty)
+    }
+    // The editor's original colors are the System theme; changing them is a visible regression.
+    #expect(SyntaxTheme.system.colors["text.title"] == .systemBlue)
+    #expect(SyntaxTheme.system.colors["keyword"] == .systemPurple)
+    #expect(SyntaxTheme.system.colors["string"] == .systemRed)
+    #expect(SyntaxTheme.system.colors["comment"] == .secondaryLabelColor)
+    #expect(SyntaxTheme(rawValue: "not a theme") == nil)
+}
+
+@Test @MainActor func switchingTheSyntaxThemeRecolorsAnOpenNote() async throws {
+    _ = NSApplication.shared
+    let library = TestLibrary()
+    let source = "# Heading\n\n```swift\nlet message = \"Hello\"\nmessage.hasPrefix(\"H\")\n```\n"
+    let note = try await library.note(source)
+    let store = NoteStore(root: library.root)
+    await store.open(note)
+    let document = try #require(store.documents[note.id])
+    let editor = document.editor.textView
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = document.editor.scrollView
+    defer { window.contentView = nil; window.close() }
+    let heading = (source as NSString).range(of: "Heading").location
+    let keyword = (source as NSString).range(of: "let").location
+    try await until { foregroundColor(in: editor, at: heading) == .systemBlue }
+
+    // No theme spells out "function.call": it has to resolve through "function".
+    let call = (source as NSString).range(of: "hasPrefix").location
+    #expect(foregroundColor(in: editor, at: call) == SyntaxTheme.system.colors["function"])
+
+    document.editor.setSyntaxTheme(.solarized)
+    try await until { foregroundColor(in: editor, at: heading) == SyntaxTheme.solarized.colors["text.title"] }
+    #expect(foregroundColor(in: editor, at: keyword) == SyntaxTheme.solarized.colors["keyword"])
+    #expect(foregroundColor(in: editor, at: call) == SyntaxTheme.solarized.colors["function"])
+    #expect(document.text == source)
+    #expect(!document.isModified)
+    #expect(editor.undoManager?.canUndo == false)
+
+    // Editing after the switch keeps painting with the chosen theme.
+    editor.insertText("# Other\n", replacementRange: NSRange(location: 0, length: (source as NSString).range(of: "\n").location + 1))
+    try await until { foregroundColor(in: editor, at: 2) == SyntaxTheme.solarized.colors["text.title"] }
+
+    document.editor.setSyntaxTheme(.system)
+    try await until { foregroundColor(in: editor, at: 2) == .systemBlue }
+}
+
+@MainActor private func until(sourceLocation: SourceLocation = #_sourceLocation, _ condition: () -> Bool) async throws {
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+    try #require(condition(), sourceLocation: sourceLocation)
+}
+
+@Test @MainActor func everyCaptureTheParserProducesGetsAColor() throws {
+    // Markdown the parser captures widely: front matter, headings, links, HTML, embedded code.
+    let source = """
+    ---
+    title: "Example"
+    tags: [a, b]
+    ---
+    # Heading *emphasis* and **strong**
+
+    Text with `inline code`, a [link](https://example.com), an ![image](pic.png) and <br />.
+
+    > A quote
+    - list item
+    1. numbered
+
+    <div class="note" id="x">html</div>
+
+    | a | b |
+    | - | - |
+    | 1 | 2 |
+
+    ```swift
+    // comment
+    struct Value { let number = 42.0 }
+    func run(name: String) -> Bool { name.isEmpty }
+    ```
+
+    ```json
+    {"key": true, "list": [1, "two\\n"]}
+    ```
+    """
+    let configuration = try #require(SyntaxResources.configuration(for: .markdown))
+    let client = try TreeSitterClient(languageConfiguration: configuration,
+                                      languageProvider: SyntaxResources.languageProvider(named:))
+    // Two captures are deliberately left unpainted, so that whatever encloses them keeps its color:
+    // "spell" spans whole paragraphs and code blocks for the spell checker, and "none" is the plain
+    // run inside a construct — inside a fenced block that run is the block's own body.
+    let unpainted = ["spell", "nospell", "none"]
+    let names = Set(try client.resetDocument(content: source).map(\.name)).subtracting(unpainted)
+    #expect(names.count > 15, "the parser captured only \(names.count) kinds of token: \(names.sorted())")
+    for theme in SyntaxTheme.allCases {
+        let colors = theme.colors
+        let uncolored = names.filter { SyntaxTheme.color(for: $0, in: colors) == nil }
+        #expect(uncolored.isEmpty, "\(theme.name) leaves \(uncolored.sorted()) uncolored")
+    }
+    // Names the queries may add later resolve through their parent instead of losing their color.
+    let colors = SyntaxTheme.system.colors
+    #expect(SyntaxTheme.color(for: "text.title.1", in: colors) == colors["text.title"])
+    #expect(SyntaxTheme.color(for: "function.method.static", in: colors) == colors["function"])
+    #expect(SyntaxTheme.color(for: "unheard.of", in: colors) == nil)
+}
+
+@Test @MainActor func fencedBlocksKeepTheirOwnColorAndThemesBringTheirPageColor() async throws {
+    _ = NSApplication.shared
+    let library = TestLibrary()
+    let source = "```\n# fenced\n```\n\n# outside\n"
+    let note = try await library.note(source)
+    let store = NoteStore(root: library.root)
+    await store.open(note)
+    let document = try #require(store.documents[note.id])
+    let editor = document.editor.textView
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = document.editor.scrollView
+    defer { window.contentView = nil; window.close() }
+    let inside = (source as NSString).range(of: "fenced").location
+    let outside = (source as NSString).range(of: "outside").location
+    try await until { foregroundColor(in: editor, at: outside) == SyntaxTheme.system.colors["text.title"] }
+    // The block's own color must survive: its contents are captured as "none" over the literal.
+    #expect(foregroundColor(in: editor, at: inside) == SyntaxTheme.system.colors["text.literal"])
+    #expect(foregroundColor(in: editor, at: inside) != SyntaxTheme.system.colors["text.title"])
+
+    #expect(editor.backgroundColor == .textBackgroundColor)
+    document.editor.setSyntaxTheme(.solarized)
+    #expect(editor.backgroundColor == SyntaxTheme.solarized.background)
+    #expect(SyntaxTheme.solarized.background != nil)
+    #expect(SyntaxTheme.system.background == nil, "the System theme follows the window's own background")
+    document.editor.setSyntaxTheme(.system)
+    #expect(editor.backgroundColor == .textBackgroundColor)
+}

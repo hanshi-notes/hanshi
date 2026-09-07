@@ -8,8 +8,16 @@ import SwiftTreeSitterLayer
 // Uses the upstream parser and incremental service with a color-only TextKit adapter.
 // Upstream's adapter applies broad tokens after nested tokens and mutates fonts while coloring.
 struct MarkdownSyntaxPlugin: STPlugin {
+    let theme: SyntaxTheme
+    // STTextView keeps the coordinator to itself; the session reaches it through this to recolor.
+    let handle: Handle
+
+    final class Handle { var coordinator: Coordinator? }
+
     func makeCoordinator(context: CoordinatorContext) -> Coordinator {
-        Coordinator(textView: context.textView)
+        let coordinator = Coordinator(textView: context.textView, theme: theme)
+        handle.coordinator = coordinator
+        return coordinator
     }
 
     func setUp(context: any Context) {
@@ -31,9 +39,11 @@ struct MarkdownSyntaxPlugin: STPlugin {
         private let service: SyntaxHighlightService?
         private let colors: ColorApplier
         private var work: Task<Void, Never>?
+        private weak var textView: STTextView?
 
-        init(textView: STTextView) {
-            let colors = ColorApplier(textView: textView)
+        init(textView: STTextView, theme: SyntaxTheme) {
+            self.textView = textView
+            let colors = ColorApplier(textView: textView, theme: theme)
             self.colors = colors
             if let configuration = SyntaxResources.configuration(for: .markdown),
                let client = try? TreeSitterClient(languageConfiguration: configuration,
@@ -43,6 +53,11 @@ struct MarkdownSyntaxPlugin: STPlugin {
                 }
             } else { service = nil }
             highlight(textView.text ?? "")
+        }
+
+        func setTheme(_ theme: SyntaxTheme) {
+            guard colors.setTheme(theme) else { return }
+            highlight(textView?.text ?? colors.source)
         }
 
         func highlight(_ text: String) {
@@ -66,8 +81,22 @@ struct MarkdownSyntaxPlugin: STPlugin {
         private var generation = 0
         var source = ""
         private var needsFullRepaint = true
+        private var theme: SyntaxTheme
+        private var colors: [String: NSColor]
 
-        init(textView: STTextView) { self.textView = textView }
+        init(textView: STTextView, theme: SyntaxTheme) {
+            self.textView = textView
+            self.theme = theme
+            colors = theme.colors
+        }
+
+        /// False when the theme was already applied; a fresh highlight then repaints the document.
+        func setTheme(_ theme: SyntaxTheme) -> Bool {
+            guard self.theme != theme else { return false }
+            self.theme = theme
+            colors = theme.colors
+            return true
+        }
 
         func apply(_ update: HighlightUpdate) {
             guard let textView, update.generation >= generation else { return }
@@ -88,8 +117,7 @@ struct MarkdownSyntaxPlugin: STPlugin {
             }
             for token in tokens where token.range.length > 0 && NSMaxRange(token.range) <= length {
                 guard invalidated.contains(where: { rangesOverlap($0, token.range) }) else { continue }
-                let color = token.name == "none" ? NSColor.textColor
-                    : MarkdownEditorSession.colors[token.name]
+                let color = SyntaxTheme.color(for: token.name, in: colors)
                 if let color { textView.addRenderingAttributes([.foregroundColor: color], range: token.range) }
             }
         }

@@ -66,6 +66,7 @@ struct EditorSettingsView: View {
     @AppStorage(EditorFont.nameKey) private var name = ""
     @AppStorage(EditorFont.lineHeightKey) private var lineHeight = 1.0
     @AppStorage(EditorFont.ligaturesKey) private var ligatures = true
+    @AppStorage(SyntaxTheme.key) private var theme = SyntaxTheme.system.rawValue
 
     private var boundedSize: Binding<Double> {
         Binding(get: { EditorFont.clampedSize(size) }, set: { size = EditorFont.clampedSize($0) })
@@ -128,6 +129,22 @@ struct EditorSettingsView: View {
                     }
                 }
             }
+            Section("Syntax Colors") {
+                ForEach(SyntaxTheme.allCases) { option in
+                    Button { theme = option.rawValue } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark")
+                                .opacity(theme == option.rawValue ? 1 : 0)
+                            Text(option.name)
+                            Spacer(minLength: 8)
+                            SyntaxSwatch(colors: option.swatch, background: option.background)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(theme == option.rawValue ? [.isButton, .isSelected] : .isButton)
+                }
+            }
             Section("Preview") {
                 EditorTypographyPreview(font: selectedFont.wrappedValue,
                                         lineHeight: EditorFont.clampedLineHeight(lineHeight), ligatures: ligatures)
@@ -139,6 +156,24 @@ struct EditorSettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 520, height: 440)
+    }
+}
+
+private struct SyntaxSwatch: View {
+    let colors: [NSColor]
+    let background: NSColor?
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(Array(colors.enumerated()), id: \.offset) { _, color in
+                Circle().fill(Color(nsColor: color)).frame(width: 6, height: 6)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(Color(nsColor: background ?? .textBackgroundColor)))
+        .overlay(Capsule().strokeBorder(Color(nsColor: .separatorColor)))
+        .accessibilityHidden(true)
     }
 }
 

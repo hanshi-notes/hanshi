@@ -3,27 +3,13 @@ import SwiftUI
 import STTextView
 
 final class MarkdownEditorSession: STTextViewDelegate {
-    // SwiftPM's command-line build does not compile the plugin's color asset catalog.
-    // Native colors also adapt to the editor's appearance without that resource dependency.
-    static let colors: [String: NSColor] = [
-        "plain": .textColor, "text.title": .systemBlue, "text.literal": .systemBrown,
-        "text.uri": .systemBlue, "text.reference": .systemBlue,
-        "text.emphasis": .systemPurple, "text.strong": .systemPurple,
-        "keyword": .systemPurple, "keyword.function": .systemPurple, "keyword.return": .systemPurple,
-        "include": .systemPurple, "boolean": .systemPurple,
-        "string": .systemRed, "string.escape": .systemOrange,
-        "comment": .secondaryLabelColor, "number": .systemOrange,
-        "type": .systemTeal, "constructor": .systemTeal,
-        "function.call": .systemBlue, "method": .systemBlue,
-        "variable": .textColor, "variable.builtin": .systemTeal,
-        "parameter": .systemBrown, "operator": .systemPurple,
-        "punctuation.special": .systemBlue, "punctuation.delimiter": .secondaryLabelColor
-    ]
     let scrollView: NSScrollView
     let textView: STTextView
     private weak var document: NoteDocument?
     private var needsFocus = false
     private var ligatures = true
+    private let syntax = MarkdownSyntaxPlugin.Handle()
+    private var theme = SyntaxTheme.saved
 
     init(document: NoteDocument) {
         self.document = document
@@ -47,7 +33,8 @@ final class MarkdownEditorSession: STTextViewDelegate {
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isAutomaticTextCompletionEnabled = false
         textView.setAccessibilityLabel("Markdown editor")
-        textView.addPlugin(MarkdownSyntaxPlugin())
+        textView.backgroundColor = theme.background ?? .textBackgroundColor
+        textView.addPlugin(MarkdownSyntaxPlugin(theme: theme, handle: syntax))
         textView.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
         textView.gutterView?.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         textView.textDelegate = self
@@ -62,6 +49,13 @@ final class MarkdownEditorSession: STTextViewDelegate {
         guard textView.font != font else { return }
         textView.font = font
         textView.gutterView?.font = .monospacedSystemFont(ofSize: max(11, font.pointSize - 3), weight: .regular)
+    }
+
+    func setSyntaxTheme(_ theme: SyntaxTheme) {
+        guard self.theme != theme else { return }
+        self.theme = theme
+        textView.backgroundColor = theme.background ?? .textBackgroundColor
+        syntax.coordinator?.setTheme(theme)
     }
 
     func setTypography(lineHeight: Double, ligatures: Bool) {
@@ -131,10 +125,12 @@ struct MarkdownEditorView: View {
     @AppStorage(EditorFont.nameKey) private var name = ""
     @AppStorage(EditorFont.lineHeightKey) private var lineHeight = 1.0
     @AppStorage(EditorFont.ligaturesKey) private var ligatures = true
+    @AppStorage(SyntaxTheme.key) private var theme = SyntaxTheme.system.rawValue
 
     var body: some View {
         EditorRepresentable(session: document.editor, text: document.text, name: name, family: family,
-                            size: size, lineHeight: lineHeight, ligatures: ligatures)
+                            size: size, lineHeight: lineHeight, ligatures: ligatures,
+                            theme: SyntaxTheme(rawValue: theme) ?? .system)
     }
 }
 
@@ -146,6 +142,7 @@ private struct EditorRepresentable: NSViewRepresentable {
     let size: Double
     let lineHeight: Double
     let ligatures: Bool
+    let theme: SyntaxTheme
 
     func makeNSView(context: Context) -> EditorContainerView {
         EditorContainerView()
@@ -161,6 +158,7 @@ private struct EditorRepresentable: NSViewRepresentable {
         session.synchronize(text)
         session.setFont(name: name, family: family, size: size)
         session.setTypography(lineHeight: lineHeight, ligatures: ligatures)
+        session.setSyntaxTheme(theme)
         let scrollView = session.scrollView
         guard scrollView.superview !== container else { return }
         container.subviews.forEach { $0.removeFromSuperview() }
