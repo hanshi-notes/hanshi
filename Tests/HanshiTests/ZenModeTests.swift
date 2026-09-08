@@ -31,9 +31,11 @@ extension AppKitWindowTests {
         let split = try #require(librarySplit(in: host))
         #expect(split.arrangedSubviews.count == 3)
         editor.textView.undoManager?.groupsByEvent = false
+        editor.textView.undoManager?.beginUndoGrouping()
         editor.textView.insertText("Draft ", replacementRange: NSRange(location: 2, length: 0))
+        editor.textView.undoManager?.endUndoGrouping()
         let draft = document.text
-        let selection = editor.textView.textSelection
+        let selection = editor.textView.selectedRange()
         let focusedView: NSView
         if focusPreview {
             try await zenEventually { zenPreview(in: host)?.string.contains("Draft Zen document") == true }
@@ -56,7 +58,7 @@ extension AppKitWindowTests {
                 #expect(editor.textView.window === window)
                 #expect(editor.scrollView.visibleRect.width > 100)
                 #expect(editor.scrollView.visibleRect.height > 100)
-                #expect(editor.textView.textSelection == selection)
+                #expect(editor.textView.selectedRange() == selection)
             }
             if mode != .source {
                 let preview = try #require(zenPreview(in: host))

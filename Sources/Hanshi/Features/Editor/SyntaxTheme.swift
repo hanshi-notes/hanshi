@@ -4,6 +4,8 @@ import AppKit
 // tree-sitter capture the highlight queries produce onto a role, so adding a theme is one palette.
 enum SyntaxTheme: String, CaseIterable, Identifiable {
     case system, github, solarized, lowKey
+    case anura, anuraDark, classic, dendrobates, dendrobatesDark, kawazu, lakritz, mono, note
+    case printen, pulse, resinifictrix, resinifictrixDark
 
     static let key = "editorSyntaxTheme"
     static var saved: SyntaxTheme { SyntaxTheme(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .system }
@@ -16,6 +18,19 @@ enum SyntaxTheme: String, CaseIterable, Identifiable {
         case .github: "GitHub (Light)"
         case .solarized: "Solarized (Light)"
         case .lowKey: "Low Key"
+        case .anura: "Anura"
+        case .anuraDark: "Anura (Dark)"
+        case .classic: "Classic"
+        case .dendrobates: "Dendrobates"
+        case .dendrobatesDark: "Dendrobates (Dark)"
+        case .kawazu: "Kawazu"
+        case .lakritz: "Lakritz"
+        case .mono: "Mono"
+        case .note: "Note"
+        case .printen: "Printen"
+        case .pulse: "Pulse"
+        case .resinifictrix: "Resinifictrix"
+        case .resinifictrixDark: "Resinifictrix (Dark)"
         }
     }
 
@@ -42,13 +57,30 @@ enum SyntaxTheme: String, CaseIterable, Identifiable {
             "namespace": palette.type, "property": palette.type, "symbol": palette.type,
             "function": palette.call, "method": palette.call,
             "parameter": palette.parameter, "attribute": palette.parameter, "field": palette.parameter,
-            "annotation": palette.parameter
+            "annotation": palette.parameter,
+            "H1": palette.title, "H2": palette.title, "H3": palette.title,
+            "H4": palette.title, "H5": palette.title, "H6": palette.title,
+            "EMPH": palette.emphasis, "STRONG": palette.emphasis, "HRULE": palette.comment,
+            "LIST_BULLET": palette.title, "LIST_ENUMERATOR": palette.title,
+            "LINK": palette.uri, "AUTO_LINK_URL": palette.uri, "AUTO_LINK_EMAIL": palette.uri,
+            "REFERENCE": palette.uri, "IMAGE": palette.uri, "CODE": palette.literal,
+            "VERBATIM": palette.literal, "HTML_ENTITY": palette.escape, "COMMENT": palette.comment,
+            "BLOCKQUOTE": palette.comment
         ]
     }
+
+    private static let markdownRoles = ["text.title.1": "H1", "text.title.2": "H2", "text.title.3": "H3",
+                     "text.title.4": "H4", "text.title.5": "H5", "text.title.6": "H6",
+                     "text.emphasis": "EMPH", "text.strong": "STRONG", "text.uri": "LINK",
+                     "text.reference": "REFERENCE", "text.literal": "CODE", "text.quote": "BLOCKQUOTE",
+                     "text.uri.autolink": "AUTO_LINK_URL", "text.uri.email": "AUTO_LINK_EMAIL",
+                     "text.image": "IMAGE", "text.literal.verbatim": "VERBATIM",
+                     "text.list.bullet": "LIST_BULLET", "text.list.number": "LIST_ENUMERATOR", "text.hrule": "HRULE"]
 
     /// The color for a capture name, falling back to its parent: "function.method" takes the
     /// "function" color, "text.title.1" the "text.title" one.
     static func color(for token: String, in colors: [String: NSColor]) -> NSColor? {
+        if let role = markdownRoles[token], let color = colors[role] { return color }
         var name = Substring(token)
         while true {
             if let color = colors[String(name)] { return color }
@@ -59,6 +91,23 @@ enum SyntaxTheme: String, CaseIterable, Identifiable {
 
     /// The editor's page color, when the theme asks for one of its own.
     var background: NSColor? { palette.background }
+    var plain: NSColor { palette.plain }
+    var appearance: NSAppearance? {
+        guard let color = background?.usingColorSpace(.deviceRGB) else { return nil }
+        let brightness = color.redComponent * 0.2126 + color.greenComponent * 0.7152 + color.blueComponent * 0.0722
+        return NSAppearance(named: brightness < 0.5 ? .darkAqua : .aqua)
+    }
+    var invisibles: NSColor { cotTheme?.color("invisibles") ?? .disabledControlTextColor }
+    var lineHighlight: NSColor { cotTheme?.color("lineHighlight") ?? .quaternaryLabelColor }
+    var selection: NSColor { cotTheme?.color("selection", system: .selectedTextBackgroundColor) ?? .selectedTextBackgroundColor }
+    var insertionPoint: NSColor { cotTheme?.color("insertionPoint", system: .textColor) ?? plain }
+    var highlight: NSColor { cotTheme?.color("highlight", system: .findHighlightColor) ?? .findHighlightColor }
+    var cotTheme: CotTheme? { Self.cotThemes[name] }
+    private static let cotThemes: [String: CotTheme] = Dictionary(uniqueKeysWithValues: allCases.compactMap { theme in
+        guard let url = EditorResources.bundle.url(forResource: theme.name, withExtension: "cottheme", subdirectory: "Themes"),
+              let data = try? Data(contentsOf: url), let value = try? CotTheme(data: data) else { return nil }
+        return (theme.name, value)
+    })
 
     /// The colors Settings shows next to the theme's name, darkest role first.
     var swatch: [NSColor] {
@@ -68,7 +117,18 @@ enum SyntaxTheme: String, CaseIterable, Identifiable {
     }
 
     private var palette: Palette {
-        switch self {
+        if let theme = cotTheme {
+            let plain = theme.color("text") ?? .textColor
+            let keyword = theme.color("keywords") ?? plain
+            let string = theme.color("strings") ?? plain
+            let type = theme.color("types") ?? plain
+            return Palette(background: theme.color("background"), plain: plain, title: keyword,
+                literal: string, uri: theme.color("commands") ?? keyword, emphasis: type,
+                keyword: keyword, string: string, escape: theme.color("characters") ?? string,
+                comment: theme.color("comments") ?? plain, number: theme.color("numbers") ?? plain,
+                type: type, call: theme.color("commands") ?? plain, parameter: theme.color("attributes") ?? plain)
+        }
+        return switch self {
         case .system:
             // The colors the editor has always used: they follow the system appearance.
             Palette(background: nil,
@@ -97,6 +157,7 @@ enum SyntaxTheme: String, CaseIterable, Identifiable {
                     string: .hex(0x5E6E5E), escape: .hex(0x7A6A5A), comment: .tertiaryLabelColor,
                     number: .hex(0x6B7280), type: .hex(0x55606B), call: .hex(0x55606B),
                     parameter: .hex(0x6B7280))
+        default: SyntaxTheme.system.palette
         }
     }
 }

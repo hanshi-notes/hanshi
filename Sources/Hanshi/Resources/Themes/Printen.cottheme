@@ -1,0 +1,63 @@
+{
+  "attributes" : {
+    "color" : "#965b63"
+  },
+  "background" : {
+    "color" : "#252316"
+  },
+  "characters" : {
+    "color" : "#b07fb0"
+  },
+  "commands" : {
+    "color" : "#c15757"
+  },
+  "comments" : {
+    "color" : "#7f6a54"
+  },
+  "highlight" : {
+      "color" : "#5da810",
+      "usesSystemSetting" : true
+  },
+  "insertionPoint" : {
+    "color" : "#b1a9a2",
+    "usesSystemSetting" : false
+  },
+  "invisibles" : {
+    "color" : "#806761"
+  },
+  "keywords" : {
+    "color" : "#af7f36"
+  },
+  "lineHighlight" : {
+    "color" : "#3b3324b3"
+  },
+  "metadata" : {
+    "author" : "1024jp",
+    "description" : "CotEditor built-in theme.",
+    "distributionURL" : "https://coteditor.com",
+    "license" : "Same as CotEditor (Apache, ver.2)"
+  },
+  "name" : "Printen",
+  "numbers" : {
+    "color" : "#698888"
+  },
+  "selection" : {
+    "color" : "#665643",
+    "usesSystemSetting" : false
+  },
+  "strings" : {
+    "color" : "#988570"
+  },
+  "text" : {
+    "color" : "#b1a9a2"
+  },
+  "types" : {
+    "color" : "#af9931"
+  },
+  "values" : {
+    "color" : "#688745"
+  },
+  "variables" : {
+    "color" : "#6c7e93"
+  }
+}

@@ -1,8 +1,6 @@
 import AppKit
 import Testing
-import STTextView
-import STPluginTreeSitterCore
-import TreeSitterResource
+import EditorSyntax
 @testable import Hanshi
 
 final class TestLibrary: Sendable {
@@ -26,7 +24,7 @@ final class TestLibrary: Sendable {
     let syntax = resources.appendingPathComponent("Syntax")
     try FileManager.default.createDirectory(at: syntax, withIntermediateDirectories: true)
     for language in [TreeSitterLanguage.markdown, .markdownInline, .swift, .yaml] {
-        let original = try #require(language.queryDirectoryURL)
+        let original = try #require(EditorResources.bundle.resourceURL).appendingPathComponent("Syntax").appendingPathComponent(language.name.replacingOccurrences(of: "_", with: ""))
         try FileManager.default.copyItem(at: original, to: syntax.appendingPathComponent(language.name.replacingOccurrences(of: "_", with: "")))
     }
     let configuration = try #require(SyntaxResources.configuration(for: .markdown, resources: resources))
@@ -231,10 +229,12 @@ private actor PausedWriter {
     let session = document.editor
     let editor = session.textView
     editor.undoManager?.groupsByEvent = false
+    editor.undoManager?.beginUndoGrouping()
     editor.insertText("😀 ", replacementRange: NSRange(location: 2, length: 0))
+    editor.undoManager?.endUndoGrouping()
     #expect(document.text == "# 😀 Original\n")
     #expect(document.isModified)
-    let selection = editor.textSelection
+    let selection = editor.selectedRange()
     let firstContainer = NSView()
     firstContainer.addSubview(session.scrollView)
     session.scrollView.removeFromSuperview()
@@ -242,7 +242,7 @@ private actor PausedWriter {
     secondContainer.addSubview(session.scrollView)
     session.synchronize(document.text)
     #expect(document.editor === session)
-    #expect(editor.textSelection == selection)
+    #expect(editor.selectedRange() == selection)
     let undo = try #require(editor.undoManager)
     #expect(undo.canUndo)
     undo.undo()
@@ -284,9 +284,13 @@ extension AppKitWindowTests {
 
         // Replace and edit again before earlier highlighting completes: only the final source may win.
         editor.undoManager?.groupsByEvent = false
+        editor.undoManager?.beginUndoGrouping()
         editor.insertText("# Temporary\n", replacementRange: NSRange(location: 0, length: source.utf16.count))
+        editor.undoManager?.endUndoGrouping()
         let finalSource = "# Final 😀\n\n```swift\n// comment\nlet value = 42\n```\n"
-        editor.insertText(finalSource, replacementRange: NSRange(location: 0, length: (editor.text ?? "").utf16.count))
+        editor.undoManager?.beginUndoGrouping()
+        editor.insertText(finalSource, replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+        editor.undoManager?.endUndoGrouping()
         let commentOffset = (finalSource as NSString).range(of: "// comment").location
         let numberOffset = (finalSource as NSString).range(of: "42").location
         let finalDeadline = ContinuousClock.now.advanced(by: .seconds(5))
@@ -302,14 +306,9 @@ extension AppKitWindowTests {
     }
 }
 
-@MainActor private func foregroundColor(in editor: STTextView, at offset: Int) -> NSColor? {
-    guard let location = editor.textContentManager.location(editor.textContentManager.documentRange.location, offsetBy: offset) else { return nil }
-    var color: NSColor?
-    editor.textLayoutManager.enumerateRenderingAttributes(from: location, reverse: false) { _, attributes, _ in
-        color = attributes[.foregroundColor] as? NSColor
-        return false
-    }
-    return color
+@MainActor private func foregroundColor(in editor: NSTextView, at offset: Int) -> NSColor? {
+    guard offset >= 0, offset < (editor.textStorage?.length ?? 0) else { return nil }
+    return editor.layoutManager?.temporaryAttribute(.foregroundColor, atCharacterIndex: offset, effectiveRange: nil) as? NSColor
 }
 
 extension AppKitWindowTests {
@@ -331,34 +330,50 @@ extension AppKitWindowTests {
         editor.layoutSubtreeIfNeeded()
         let clip = scrollView.contentView
         let parent = try #require(scrollView.superview)
-        try #require(editor.frame.maxY < clip.bounds.maxY - 40)
+        try #require((editor.textFrame(at: source.utf16.count)?.maxY ?? 0) < clip.bounds.maxY - 40)
 
         for x in [10.0, clip.bounds.midX, clip.bounds.maxX - 10] {
             window.makeFirstResponder(nil)
-            editor.textSelection = NSRange(location: 0, length: min(2, source.utf16.count))
+            editor.setSelectedRange(NSRange(location: 0, length: min(2, source.utf16.count)))
             let location = clip.convert(NSPoint(x: x, y: clip.bounds.maxY - 20), to: nil)
             let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: location,
-                                                      modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                                      modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                                                       context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
             let hit = try #require(scrollView.hitTest(parent.convert(location, from: nil)))
-            hit.mouseDown(with: event)
+            try clickEditor(hit, event: event)
             #expect(window.firstResponder === editor)
-            #expect(editor.textSelection == NSRange(location: source.utf16.count, length: 0))
+            #expect(editor.selectedRange() == NSRange(location: source.utf16.count, length: 0))
             #expect(document.text == source)
             #expect(!document.isModified)
         }
 
         // Clicking the first text line must still use the editor's normal caret placement.
         if !source.isEmpty, !source.hasPrefix("\n") {
-            let location = editor.convert(NSPoint(x: (editor.gutterView?.frame.width ?? 0) + 2, y: 5), to: nil)
+            let location = editor.convert(NSPoint(x: editor.textContainerOrigin.x + 2, y: 5), to: nil)
             let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: location,
-                                                      modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                                      modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                                                       context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
             let hit = try #require(scrollView.hitTest(parent.convert(location, from: nil)))
-            hit.mouseDown(with: event)
-            #expect(editor.textSelection.location < "First line".utf16.count)
+            try clickEditor(hit, event: event)
+            #expect(editor.selectedRange().location < "First line".utf16.count)
         }
     }
+}
+
+// Native tracking needs a mouse-up and may stop its run loop. Isolate it from Swift's async-main loop.
+@MainActor private func clickEditor(_ view: NSView, event: NSEvent) throws {
+    let up = try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: event.locationInWindow,
+        modifierFlags: [], timestamp: event.timestamp + 0.01, windowNumber: event.windowNumber,
+        context: nil, eventNumber: event.eventNumber + 1, clickCount: 1, pressure: 0))
+    CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
+        MainActor.assumeIsolated {
+            NSApplication.shared.postEvent(up, atStart: true)
+            view.mouseDown(with: event)
+            NSApplication.shared.discardEvents(matching: .leftMouseUp, before: nil)
+        }
+        CFRunLoopStop(CFRunLoopGetMain())
+    }
+    CFRunLoopRun()
 }
 
 @Test @MainActor func aNewNotesCursorWaitsAtTheEndOfItsHeading() throws {
@@ -370,9 +385,9 @@ extension AppKitWindowTests {
         }
     }
     // "# Note|\n": typing replaces nothing and continues the title.
-    #expect(document(NoteTitle.template).editor.textView.textSelection == NSRange(location: 6, length: 0))
+    #expect(document(NoteTitle.template).editor.textView.selectedRange() == NSRange(location: 6, length: 0))
     for text in ["", "# Note\nwritten already\n", "written already\n"] {
-        #expect(document(text).editor.textView.textSelection == NSRange(location: 0, length: 0),
+        #expect(document(text).editor.textView.selectedRange() == NSRange(location: 0, length: 0),
                 "an edited note should open at its start, not mid-text")
     }
 }
@@ -425,7 +440,9 @@ extension AppKitWindowTests {
         #expect(editor.undoManager?.canUndo == false)
 
         // Editing after the switch keeps painting with the chosen theme.
+        editor.undoManager?.beginUndoGrouping()
         editor.insertText("# Other\n", replacementRange: NSRange(location: 0, length: (source as NSString).range(of: "\n").location + 1))
+        editor.undoManager?.endUndoGrouping()
         try await until { foregroundColor(in: editor, at: 2) == SyntaxTheme.solarized.colors["text.title"] }
 
         document.editor.setSyntaxTheme(.system)

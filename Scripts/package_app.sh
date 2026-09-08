@@ -26,14 +26,6 @@ for resource in "$BIN_DIR"/SwaTex_SwaTexRender.bundle "$BIN_DIR"/Hanshi_Hanshi.b
     [[ -d "$resource" ]] || { echo "Missing resource bundle: $resource" >&2; exit 1; }
     ditto "$resource" "$APP/Contents/Resources/$(basename "$resource")"
 done
-# Keep parser queries in the signed app's Resources directory, independent of SwiftPM's build paths.
-for resource in "$BIN_DIR"/STTextView-Plugin-TreeSitter_TreeSitter*Queries.bundle; do
-    [[ -d "$resource" ]] || continue
-    resource_name=$(basename "$resource" .bundle)
-    language=${resource_name#STTextView-Plugin-TreeSitter_TreeSitter}
-    language=$(echo "${language%Queries}" | tr '[:upper:]' '[:lower:]')
-    ditto "$resource" "$APP/Contents/Resources/Syntax/$language"
-done
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

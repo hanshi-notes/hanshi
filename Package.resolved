@@ -1,15 +1,6 @@
 {
-  "originHash" : "f23f17d1fdcbde433d4df5df4762f9845c9f3e7cb83a046f7eb9d8724ad4bad9",
+  "originHash" : "0140294956e36f7e578acae2af8bc8a2986f9ac186b953cd3125edd72aa1acab",
   "pins" : [
-    {
-      "identity" : "coretextswift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/krzyzanowskim/CoreTextSwift",
-      "state" : {
-        "revision" : "833177201d6421e6322296f39fce6ff6ae52618a",
-        "version" : "0.2.0"
-      }
-    },
     {
       "identity" : "highlightkit",
       "kind" : "remoteSourceControl",
@@ -19,29 +10,12 @@
       }
     },
     {
-      "identity" : "sttextkitplus",
+      "identity" : "runestone",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/krzyzanowskim/STTextKitPlus",
+      "location" : "https://github.com/simonbs/Runestone",
       "state" : {
-        "revision" : "2ee74906f4d753458eeaa9a2f6d4538aacb86a1d",
-        "version" : "0.3.0"
-      }
-    },
-    {
-      "identity" : "sttextview",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/krzyzanowskim/STTextView",
-      "state" : {
-        "revision" : "a7da6bdbbd3d0beba116868941266ede11bef5b6",
-        "version" : "2.4.0"
-      }
-    },
-    {
-      "identity" : "sttextview-plugin-treesitter",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/krzyzanowskim/STTextView-Plugin-TreeSitter",
-      "state" : {
-        "revision" : "346bbce977ce6a485ff9ad5696bebbe8790241e9"
+        "revision" : "1884b67110ce35d830a73b34827d3cd1f50418c5",
+        "version" : "0.4.2"
       }
     },
     {
@@ -76,6 +50,14 @@
       "state" : {
         "revision" : "da6fe9beb4f7f67beb75914ca8e0d48ae48d6406",
         "version" : "0.25.10"
+      }
+    },
+    {
+      "identity" : "treesitterlanguages",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/simonbs/TreeSitterLanguages",
+      "state" : {
+        "revision" : "15cf3a9ec3ab95e0d058b7df9f35619123c9e02d"
       }
     }
   ],

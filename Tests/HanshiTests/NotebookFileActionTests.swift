@@ -17,8 +17,10 @@ import Testing
     let document = try #require(store.documents[first.id])
     let editor = document.editor.textView
     editor.undoManager?.groupsByEvent = false
+    editor.undoManager?.beginUndoGrouping()
     editor.insertText("draft ", replacementRange: NSRange(location: 0, length: 0))
-    let selection = editor.textSelection
+    editor.undoManager?.endUndoGrouping()
+    let selection = editor.selectedRange()
     #expect(await store.rename(notebook, to: "  Renamed café 😀  "))
     let renamed = try #require(store.notebooks.first)
     #expect(renamed.name == "Renamed café 😀")
@@ -27,7 +29,7 @@ import Testing
     #expect(renamed.notes.allSatisfy { $0.notebookName == renamed.name })
     #expect(store.documents[first.id] === document)
     #expect(document.url == renamed.url.appendingPathComponent(first.url.lastPathComponent))
-    #expect(editor.textSelection == selection)
+    #expect(editor.selectedRange() == selection)
     #expect(document.text == "draft original")
     #expect(document.isModified)
     #expect(try String(contentsOf: document.url, encoding: .utf8) == "original")

@@ -11,8 +11,10 @@ import Testing
     }
     let editor = document.editor.textView
     editor.undoManager?.groupsByEvent = false
+    editor.undoManager?.beginUndoGrouping()
     editor.insertText("New ", replacementRange: NSRange(location: 2, length: 0))
-    let selection = editor.textSelection
+    editor.undoManager?.endUndoGrouping()
+    let selection = editor.selectedRange()
     let text = document.text
     let systemFamily = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular).familyName
     for (family, requested, expectedFamily, expectedSize) in [
@@ -23,10 +25,10 @@ import Testing
         ("", 14, systemFamily, 14)
     ] {
         document.editor.setFont(family: family, size: requested)
-        #expect(editor.font.familyName == expectedFamily)
-        #expect(editor.font.pointSize == CGFloat(expectedSize))
+        #expect(editor.font!.familyName == expectedFamily)
+        #expect(editor.font!.pointSize == CGFloat(expectedSize))
         #expect(try #require(editor.gutterView?.font.pointSize) >= 11)
-        #expect(editor.textSelection == selection)
+        #expect(editor.selectedRange() == selection)
         #expect(document.text == text)
     }
     editor.undoManager?.undo()
@@ -55,9 +57,9 @@ extension AppKitWindowTests {
         window.contentView = host
         defer { window.contentView = nil; window.close() }
         host.layoutSubtreeIfNeeded()
-        #expect(document.editor.textView.font.familyName == "Menlo")
-        #expect(document.editor.textView.font.pointSize == 28)
-        #expect(document.editor.textView.defaultParagraphStyle.lineHeightMultiple == 1.8)
+        #expect(document.editor.textView.font!.familyName == "Menlo")
+        #expect(document.editor.textView.font!.pointSize == 28)
+        #expect(document.editor.textView.defaultParagraphStyle!.lineHeightMultiple == 1.8)
         #expect(document.editor.textView.typingAttributes[.ligature] as? Int == 0)
         defaults.set("Helvetica", forKey: EditorFont.familyKey)
         defaults.set(20.5, forKey: EditorFont.sizeKey)
@@ -65,13 +67,13 @@ extension AppKitWindowTests {
         defaults.set(1.2, forKey: EditorFont.lineHeightKey)
         defaults.set(true, forKey: EditorFont.ligaturesKey)
         let deadline = ContinuousClock.now.advanced(by: .seconds(3))
-        while (document.editor.textView.font.pointSize != 20.5 || document.editor.textView.font.fontName != "Helvetica-BoldOblique" || document.editor.textView.defaultParagraphStyle.lineHeightMultiple != 1.2), ContinuousClock.now < deadline {
+        while (document.editor.textView.font!.pointSize != 20.5 || document.editor.textView.font!.fontName != "Helvetica-BoldOblique" || document.editor.textView.defaultParagraphStyle!.lineHeightMultiple != 1.2), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(document.editor.textView.font.familyName == "Helvetica")
-        #expect(document.editor.textView.font.pointSize == 20.5)
-        #expect(document.editor.textView.font.fontName == "Helvetica-BoldOblique")
-        #expect(document.editor.textView.defaultParagraphStyle.lineHeightMultiple == 1.2)
+        #expect(document.editor.textView.font!.familyName == "Helvetica")
+        #expect(document.editor.textView.font!.pointSize == 20.5)
+        #expect(document.editor.textView.font!.fontName == "Helvetica-BoldOblique")
+        #expect(document.editor.textView.defaultParagraphStyle!.lineHeightMultiple == 1.2)
         #expect(document.editor.textView.typingAttributes[.ligature] as? Int == 1)
         #expect(!document.isModified)
     }
@@ -86,21 +88,23 @@ extension AppKitWindowTests {
     }
     let editor = document.editor.textView
     editor.undoManager?.groupsByEvent = false
-    editor.textSelection = NSRange(location: 3, length: 0)
+    editor.setSelectedRange(NSRange(location: 3, length: 0))
     document.editor.setFont(name: "Helvetica-BoldOblique", size: 18.5)
     document.editor.setTypography(lineHeight: 1.8, ligatures: false)
-    #expect(editor.font.fontName == "Helvetica-BoldOblique")
-    #expect(editor.font.pointSize == 18.5)
-    #expect(editor.textSelection == NSRange(location: 3, length: 0))
+    #expect(editor.font!.fontName == "Helvetica-BoldOblique")
+    #expect(editor.font!.pointSize == 18.5)
+    #expect(editor.selectedRange() == NSRange(location: 3, length: 0))
     #expect(document.text == original)
     #expect(!document.isModified)
-    let storage = try #require((editor.textContentManager as? NSTextContentStorage)?.textStorage)
+    let storage = try #require(editor.textStorage)
     for offset in [0, storage.length - 1] {
         #expect((storage.attribute(.paragraphStyle, at: offset, effectiveRange: nil) as? NSParagraphStyle)?.lineHeightMultiple == 1.8)
         #expect(storage.attribute(.ligature, at: offset, effectiveRange: nil) as? Int == 0)
     }
-    editor.textSelection = NSRange(location: 0, length: 0)
+    editor.setSelectedRange(NSRange(location: 0, length: 0))
+    editor.undoManager?.beginUndoGrouping()
     editor.insertText("ffi", replacementRange: NSRange(location: 0, length: 0))
+    editor.undoManager?.endUndoGrouping()
     #expect(storage.attribute(.ligature, at: 0, effectiveRange: nil) as? Int == 0)
     #expect((storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?.lineHeightMultiple == 1.8)
     editor.undoManager?.undo()
@@ -119,9 +123,11 @@ extension AppKitWindowTests {
     }
     document.editor.setTypography(lineHeight: 2, ligatures: false)
     let editor = document.editor.textView
-    editor.textSelection = NSRange(location: 0, length: 0)
+    editor.setSelectedRange(NSRange(location: 0, length: 0))
+    editor.undoManager?.beginUndoGrouping()
     editor.insertText("ffi", replacementRange: NSRange(location: 0, length: 0))
-    let storage = try #require((editor.textContentManager as? NSTextContentStorage)?.textStorage)
+    editor.undoManager?.endUndoGrouping()
+    let storage = try #require(editor.textStorage)
     #expect(storage.attribute(.ligature, at: 0, effectiveRange: nil) as? Int == 0)
     #expect((storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?.lineHeightMultiple == 2)
     #expect(EditorFont.clampedLineHeight(.nan) == 1)
@@ -205,23 +211,23 @@ extension AppKitWindowTests {
         // A tab is as wide as `width` spaces in the editor's font, and follows the font.
         session.setFont(size: 14)
         session.setIndentation(width: 4, usesTabs: false)
-        let space = (" " as NSString).size(withAttributes: [.font: editor.font]).width
-        #expect(abs(editor.defaultParagraphStyle.defaultTabInterval - space * 4) < 0.01)
-        #expect(editor.defaultParagraphStyle.tabStops.isEmpty)
+        let space = (" " as NSString).size(withAttributes: [.font: editor.font!]).width
+        #expect(abs(editor.defaultParagraphStyle!.defaultTabInterval - space * 4) < 0.01)
+        #expect(editor.defaultParagraphStyle!.tabStops.isEmpty)
         session.setIndentation(width: 8, usesTabs: false)
-        #expect(abs(editor.defaultParagraphStyle.defaultTabInterval - space * 8) < 0.01)
+        #expect(abs(editor.defaultParagraphStyle!.defaultTabInterval - space * 8) < 0.01)
         session.setFont(size: 28)
-        let wideSpace = (" " as NSString).size(withAttributes: [.font: editor.font]).width
-        #expect(abs(editor.defaultParagraphStyle.defaultTabInterval - wideSpace * 8) < 0.01)
+        let wideSpace = (" " as NSString).size(withAttributes: [.font: editor.font!]).width
+        #expect(abs(editor.defaultParagraphStyle!.defaultTabInterval - wideSpace * 8) < 0.01)
         #expect(wideSpace > space)
 
         // Tab inserts spaces or a tab character, as Settings asks.
         session.setIndentation(width: 3, usesTabs: false)
         editor.insertTab(nil)
-        #expect(editor.text == "   ")
+        #expect(editor.string == "   ")
         session.setIndentation(width: 3, usesTabs: true)
         editor.insertTab(nil)
-        #expect(editor.text == "   \t")
+        #expect(editor.string == "   \t")
 
         // The text always wraps, so a horizontal scroller would only take up room.
         #expect(session.scrollView.hasHorizontalScroller == false)
@@ -243,8 +249,8 @@ extension AppKitWindowTests {
     }
     let session = document.editor
     let editor = session.textView
-    let storage = try #require((editor.textContentManager as? NSTextContentStorage)?.textStorage)
-    let space = (" " as NSString).size(withAttributes: [.font: editor.font]).width
+    let storage = try #require(editor.textStorage)
+    let space = (" " as NSString).size(withAttributes: [.font: editor.font!]).width
 
     session.setTypography(lineHeight: 1, ligatures: true, letterSpacing: 1)
     #expect(storage.attribute(.kern, at: 0, effectiveRange: nil) as? Double == 0)
@@ -253,7 +259,9 @@ extension AppKitWindowTests {
     session.setTypography(lineHeight: 1, ligatures: true, letterSpacing: 1.5)
     let kern = try #require(storage.attribute(.kern, at: 0, effectiveRange: nil) as? Double)
     #expect(abs(kern - space * 0.5) < 0.01)
+    editor.undoManager?.beginUndoGrouping()
     editor.insertText("ffi", replacementRange: NSRange(location: 0, length: 0))
+    editor.undoManager?.endUndoGrouping()
     let typed = try #require(storage.attribute(.kern, at: 0, effectiveRange: nil) as? Double)
     #expect(abs(typed - space * 0.5) < 0.01, "text typed after the change keeps the spacing")
     #expect(document.text == "ffi" + original)

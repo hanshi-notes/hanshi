@@ -178,7 +178,7 @@ struct EditorSettingsView: View {
                 HStack {
                     Toggle("Antialiasing", isOn: .constant(true))
                         .disabled(true)
-                        .help("Managed by macOS. STTextView does not expose an antialiasing control.")
+                        .help("Managed by macOS.")
                     Toggle("Ligatures", isOn: $ligatures)
                 }
                 .toggleStyle(.checkbox)
@@ -229,7 +229,8 @@ struct EditorSettingsView: View {
             }
             Section("Preview") {
                 EditorTypographyPreview(font: selectedFont.wrappedValue,
-                                        lineHeight: EditorFont.clampedLineHeight(lineHeight), ligatures: ligatures)
+                                        lineHeight: EditorFont.clampedLineHeight(lineHeight), ligatures: ligatures,
+                                        theme: SyntaxTheme(rawValue: theme) ?? .system)
                     .frame(height: 100)
             }
             Text("Changes apply immediately to all notes.")
@@ -263,12 +264,13 @@ private struct EditorTypographyPreview: NSViewRepresentable {
     let font: NSFont
     let lineHeight: Double
     let ligatures: Bool
+    let theme: SyntaxTheme
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSTextView.scrollableTextView()
         let text = scroll.documentView as! NSTextView
         text.isEditable = false
-        text.drawsBackground = false
+        text.drawsBackground = true
         scroll.drawsBackground = false
         return scroll
     }
@@ -277,10 +279,14 @@ private struct EditorTypographyPreview: NSViewRepresentable {
         let text = scroll.documentView as! NSTextView
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineHeightMultiple = lineHeight
+        text.appearance = theme.appearance
+        text.backgroundColor = theme.background ?? .textBackgroundColor
         text.textStorage?.setAttributedString(NSAttributedString(
             string: "# Markdown\nOffice: fi fl ffi → != == =>\n0123456789 · {} [] ()",
-            attributes: [.font: font, .foregroundColor: NSColor.labelColor,
+            attributes: [.font: font, .foregroundColor: theme.plain,
                          .paragraphStyle: paragraph, .ligature: ligatures ? 1 : 0]
         ))
+        text.layoutManager?.addTemporaryAttribute(.foregroundColor, value: theme.colors["H1"] ?? theme.plain,
+                                                  forCharacterRange: NSRange(location: 0, length: 10))
     }
 }

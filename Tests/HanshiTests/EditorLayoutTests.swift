@@ -15,6 +15,7 @@ extension AppKitWindowTests {
         let host = LayoutHostingView(rootView: layoutContent(document: document, lifecycle: lifecycle, mode: .source))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500),
                               styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: .aqua)
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.title = "Hanshi layout regression test"
@@ -40,6 +41,28 @@ extension AppKitWindowTests {
                 #expect(document.editor.scrollView.bounds.width <= width)
                 #expect(document.editor.scrollView.bounds.height > 100)
                 #expect(document.editor.scrollView.bounds.height <= window.frame.height)
+                #expect(document.editor.textView.visibleRect.height > 100,
+                        "The native editor must have a drawable area after SwiftUI mounts it")
+                #expect(document.editor.textView.visibleRect.width > 100)
+                if !blank {
+                    let editor = document.editor.textView
+                    let region = host.convert(editor.visibleRect, from: editor)
+                    let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil,
+                        pixelsWide: Int(host.bounds.width), pixelsHigh: Int(host.bounds.height),
+                        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                        colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+                    // Capture the composed layers: drawing the text view alone misses ruler overdraw.
+                    let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
+                    try #require(host.layer).render(in: context.cgContext)
+                    var ink = 0
+                    for y in 40..<(bitmap.pixelsHigh - 40) {
+                        for x in Int(region.minX + 60)..<min(Int(region.maxX), bitmap.pixelsWide) {
+                            if let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                               color.brightnessComponent < 0.5 { ink += 1 }
+                        }
+                    }
+                    #expect(ink > 50, "The hosted editor must paint its text in \(mode)")
+                }
             }
         }
         #expect(document.text == source)

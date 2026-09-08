@@ -10,11 +10,27 @@ let package = Package(
         .package(url: "https://github.com/swiftlang/swift-cmark", revision: "7898f1b3e4befeecee56cb4a3bc8eebd2cb63219"),
         .package(url: "https://github.com/PhraseHQ/HighlightKit", revision: "524c185b0553756498c1b6a1765e8d119c4623a6"),
         .package(url: "https://github.com/PhraseHQ/SwaTex", revision: "2b38d0b9b9b9466ac1302ab93b37f3b90b8c74fc"),
-        .package(url: "https://github.com/krzyzanowskim/STTextView", exact: "2.4.0"),
-        .package(url: "https://github.com/krzyzanowskim/STTextView-Plugin-TreeSitter",
-                 revision: "346bbce977ce6a485ff9ad5696bebbe8790241e9")
+        .package(url: "https://github.com/ChimeHQ/SwiftTreeSitter", exact: "0.25.0"),
+        .package(url: "https://github.com/simonbs/TreeSitterLanguages", revision: "15cf3a9ec3ab95e0d058b7df9f35619123c9e02d")
     ],
     targets: [
+        .target(name: "EditorSyntax", dependencies: [
+            .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter"),
+            .product(name: "SwiftTreeSitterLayer", package: "SwiftTreeSitter")
+        ] + [
+            "TreeSitterAstro", "TreeSitterBash", "TreeSitterC", "TreeSitterCPP",
+            "TreeSitterCSharp", "TreeSitterCSS", "TreeSitterComment", "TreeSitterElixir",
+            "TreeSitterElm", "TreeSitterGo", "TreeSitterHTML", "TreeSitterHaskell",
+            "TreeSitterJSDoc", "TreeSitterJSON", "TreeSitterJSON5", "TreeSitterJava",
+            "TreeSitterJavaScript", "TreeSitterJulia", "TreeSitterLaTeX", "TreeSitterLua",
+            "TreeSitterMarkdown", "TreeSitterMarkdownInline", "TreeSitterOCaml", "TreeSitterPHP",
+            "TreeSitterPerl", "TreeSitterPython", "TreeSitterR", "TreeSitterRegex",
+            "TreeSitterRuby", "TreeSitterRust", "TreeSitterSCSS", "TreeSitterSQL",
+            "TreeSitterSvelte", "TreeSitterSwift", "TreeSitterTOML", "TreeSitterTSX",
+            "TreeSitterTypeScript", "TreeSitterYAML",
+        ].map {
+            .product(name: $0, package: "TreeSitterLanguages")
+        }),
         .systemLibrary(name: "CMermaid"),
         .target(name: "CMarkdown", dependencies: [
             .product(name: "cmark-gfm", package: "swift-cmark"),
@@ -27,9 +43,8 @@ let package = Package(
             .product(name: "HighlightKit", package: "HighlightKit"),
             .product(name: "SwaTex", package: "SwaTex"),
             .product(name: "SwaTexRender", package: "SwaTex"),
-            .product(name: "STTextView", package: "STTextView"),
-            .product(name: "STTextView-Plugin-TreeSitter", package: "STTextView-Plugin-TreeSitter")
-        ], resources: [.copy("Resources/ThirdPartyNotices")], swiftSettings: [
+            "EditorSyntax"
+        ], resources: [.copy("Resources/ThirdPartyNotices"), .copy("Resources/Themes"), .copy("Resources/Syntax")], swiftSettings: [
             .defaultIsolation(MainActor.self),
             .enableUpcomingFeature("NonisolatedNonsendingByDefault")
         ], linkerSettings: [

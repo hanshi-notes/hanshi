@@ -1,0 +1,63 @@
+{
+  "attributes" : {
+    "color" : "#eba129"
+  },
+  "background" : {
+    "color" : "#141414"
+  },
+  "characters" : {
+    "color" : "#81c9d8"
+  },
+  "commands" : {
+    "color" : "#be6ef0"
+  },
+  "comments" : {
+    "color" : "#828282"
+  },
+  "highlight" : {
+      "color" : "#5da810",
+      "usesSystemSetting" : true
+  },
+  "insertionPoint" : {
+    "color" : "#ffffff",
+    "usesSystemSetting" : true
+  },
+  "invisibles" : {
+    "color" : "#6c6c6c"
+  },
+  "keywords" : {
+    "color" : "#fed80a"
+  },
+  "lineHighlight" : {
+    "color" : "#292929b3"
+  },
+  "metadata" : {
+    "author" : "1024jp",
+    "description" : "CotEditor built-in theme.",
+    "distributionURL" : "https://coteditor.com",
+    "license" : "Same as CotEditor (Apache, ver.2)"
+  },
+  "name" : "Lakritz",
+  "numbers" : {
+    "color" : "#83b519"
+  },
+  "selection" : {
+    "color" : "#403e26",
+    "usesSystemSetting" : false
+  },
+  "strings" : {
+    "color" : "#469db2"
+  },
+  "text" : {
+    "color" : "#dfdfdf"
+  },
+  "types" : {
+    "color" : "#fc76d1"
+  },
+  "values" : {
+    "color" : "#1ca693"
+  },
+  "variables" : {
+    "color" : "#e24f56"
+  }
+}

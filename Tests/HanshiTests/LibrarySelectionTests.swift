@@ -41,11 +41,11 @@ extension AppKitWindowTests {
         try clickRow(panel: 1, top: 110, in: host, window: window)
         try await eventually { store.documents[second.id]?.editor.textView === window.firstResponder }
         let secondDocument = try #require(store.documents[second.id])
-        secondDocument.editor.textView.textSelection = NSRange(location: 2, length: 0)
+        secondDocument.editor.textView.setSelectedRange(NSRange(location: 2, length: 0))
         window.makeFirstResponder(nil)
         try clickRow(panel: 1, top: 110, in: host, window: window)
         try await eventually { window.firstResponder === secondDocument.editor.textView }
-        #expect(secondDocument.editor.textView.textSelection == NSRange(location: 2, length: 0))
+        #expect(secondDocument.editor.textView.selectedRange() == NSRange(location: 2, length: 0))
 
         try clickRow(panel: 0, top: 118, in: host, window: window)
         try await eventually { secondDocument.editor.textView.window == nil }

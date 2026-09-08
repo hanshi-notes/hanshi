@@ -11,8 +11,10 @@ import Testing
     let document = try #require(store.documents[note.id])
     let editor = document.editor.textView
     editor.undoManager?.groupsByEvent = false
+    editor.undoManager?.beginUndoGrouping()
     editor.insertText("draft 😀 ", replacementRange: NSRange(location: 0, length: 0))
-    let selection = editor.textSelection
+    editor.undoManager?.endUndoGrouping()
+    let selection = editor.selectedRange()
     #expect(await store.rename(note, to: "  Renamed café  "))
     #expect(document.url.lastPathComponent == "Renamed café.md")
     #expect(store.notes.first?.id == note.id)
@@ -21,7 +23,7 @@ import Testing
     #expect(try String(contentsOf: document.url, encoding: .utf8) == "original")
     #expect(document.text == "draft 😀 original")
     #expect(document.isModified)
-    #expect(editor.textSelection == selection)
+    #expect(editor.selectedRange() == selection)
     #expect(editor.undoManager?.canUndo == true)
     #expect(await document.save())
     #expect(try String(contentsOf: document.url, encoding: .utf8) == "draft 😀 original")

@@ -147,10 +147,10 @@ extension AppKitWindowTests {
         defer { session.hide(); window.contentView = nil; window.close() }
         let editor = document.editor.textView
         window.makeFirstResponder(editor)
-        editor.textSelection = NSRange(location: 8, length: 0)
+        editor.setSelectedRange(NSRange(location: 8, length: 0))
         let undo = try #require(editor.undoManager)
         undo.beginUndoGrouping()
-        editor.insertText(" changed", replacementRange: .notFound)
+        editor.insertText(" changed", replacementRange: NSRange(location: NSNotFound, length: 0))
         undo.endUndoGrouping()
         #expect(document.text == "Original changed")
         host.rootView = NoteEditorContentView(document: document, files: files, mode: .preview, preview: session)

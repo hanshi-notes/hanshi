@@ -1,5 +1,4 @@
 import AppKit
-import STTextView
 
 nonisolated struct MarkdownReadingPosition: Sendable {
     let sourceOffset: Int
@@ -8,13 +7,7 @@ nonisolated struct MarkdownReadingPosition: Sendable {
 
 extension MarkdownPreviewSession {
     func frame(at offset: Int, length: Int = 1) -> NSRect? {
-        guard let manager = textView.layoutManager, let container = textView.textContainer,
-              let storage = textView.textStorage, storage.length > 0 else { return nil }
-        let range = NSRange(location: min(max(0, offset), storage.length - 1), length: 1)
-        let fullRange = NSRange(location: range.location, length: min(max(1, length), storage.length - range.location))
-        manager.ensureLayout(forCharacterRange: fullRange)
-        let glyphs = manager.glyphRange(forCharacterRange: fullRange, actualCharacterRange: nil)
-        return manager.boundingRect(forGlyphRange: glyphs, in: container).offsetBy(dx: textView.textContainerOrigin.x, dy: textView.textContainerOrigin.y)
+        textView.textFrame(at: offset, length: length)
     }
     func readingPosition() -> MarkdownReadingPosition? {
         guard let composition, !composition.anchors.isEmpty, let manager = textView.layoutManager,
@@ -47,7 +40,6 @@ final class MarkdownScrollSync: NSObject {
     private var monitor: Any?
     private var active = Panel.editor
     private var moving = false
-    private var generation = 0
     private var expectedEditorY: Double?
     private var expectedPreviewY: Double?
     private(set) var movementCount = 0
@@ -76,7 +68,6 @@ final class MarkdownScrollSync: NSObject {
     func disconnect() {
         NotificationCenter.default.removeObserver(self)
         if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
-        generation += 1
     }
     @objc private func boundsChanged(_ notification: Notification) {
         guard !moving, let clip = notification.object as? NSClipView else { return }
@@ -93,34 +84,11 @@ final class MarkdownScrollSync: NSObject {
         return anchors.min { abs(range($0).location - offset) < abs(range($1).location - offset) }
     }
     private func editorFrame(offset: Int) -> NSRect? {
-        guard let editor else { return nil }
-        let manager = editor.textView.textLayoutManager
-        let content = editor.textView.textContentManager
-        let length = (content as? NSTextContentStorage)?.textStorage?.length ?? 0
-        guard offset >= 0, offset <= length,
-              let location = content.location(content.documentRange.location, offsetBy: offset),
-              let end = content.location(location, offsetBy: min(1, length - offset)),
-              let range = NSTextRange(location: location, end: end) else { return nil }
-        var result: NSRect?
-        manager.enumerateTextSegments(in: range, type: .standard, options: [.rangeNotRequired]) { _, frame, _, _ in result = frame; return false }
-        // STTextView 2.4.0 offsets the content only horizontally for its gutter.
-        return result
+        editor?.textView.textFrame(at: offset)
     }
     private func editorPosition(anchors: [MarkdownAnchor]) -> MarkdownReadingPosition? {
-        guard let editor else { return nil }
-        let manager = editor.textView.textLayoutManager
-        let content = editor.textView.textContentManager
+        guard let editor, let offset = editor.textView.firstVisibleCharacter() else { return nil }
         let top = editor.scrollView.contentView.bounds.minY
-        var offset = 0
-        manager.enumerateTextLayoutFragments(from: manager.textViewportLayoutController.viewportRange?.location, options: []) { fragment in
-            if fragment.layoutFragmentFrame.minY > top { return false }
-            offset = content.offset(from: content.documentRange.location, to: fragment.rangeInElement.location)
-            for line in fragment.textLineFragments {
-                if fragment.layoutFragmentFrame.minY + line.typographicBounds.minY > top { break }
-                offset = content.offset(from: content.documentRange.location, to: fragment.rangeInElement.location) + line.characterRange.location
-            }
-            return true
-        }
         guard let anchor = Self.anchor(at: offset, anchors: anchors, source: true), let first = editorFrame(offset: anchor.source.location) else { return nil }
         let last = editorFrame(offset: max(anchor.source.location, anchor.source.upperBound - 1)) ?? first
         return MarkdownReadingPosition(sourceOffset: anchor.source.location, fraction: min(1, max(0, (top - first.minY) / max(1, last.maxY - first.minY))))
@@ -132,30 +100,22 @@ final class MarkdownScrollSync: NSObject {
               let anchors = preview.composition?.anchors, !anchors.isEmpty else { return }
         active = panel; moving = true
         defer { moving = false }
-        generation += 1
         if panel == .editor {
             if let position = editorPosition(anchors: anchors) { preview.restore(position: position) }
             expectedPreviewY = preview.scrollView.contentView.bounds.minY
         } else if let position = preview.readingPosition(), let anchor = Self.anchor(at: position.sourceOffset, anchors: anchors, source: true) {
-            let length = (editor.textView.textContentManager as? NSTextContentStorage)?.textStorage?.length ?? 0
-            let offset = min(length, anchor.source.location)
-            editor.textView.scrollRangeToVisible(NSRange(location: offset, length: min(1, length - offset)))
             alignEditor(anchor: anchor, fraction: position.fraction)
-            let current = generation
-            Task { [weak self] in
-                await Task.yield()
-                guard let self, generation == current, active == .preview else { return }
-                moving = true
-                alignEditor(anchor: anchor, fraction: position.fraction)
-                moving = false
-            }
         }
         movementCount += 1
     }
     private func alignEditor(anchor: MarkdownAnchor, fraction: Double) {
         guard let editor, let first = editorFrame(offset: anchor.source.location) else { return }
         let last = editorFrame(offset: max(anchor.source.location, anchor.source.upperBound - 1)) ?? first
-        Self.scroll(editor.scrollView, to: first.minY + max(1, last.maxY - first.minY) * fraction)
+        let y = first.minY + max(1, last.maxY - first.minY) * fraction
+        if y > max(0, editor.textView.bounds.height - editor.scrollView.contentView.bounds.height) {
+            editor.textView.sizeToFit()
+        }
+        Self.scroll(editor.scrollView, to: y)
         expectedEditorY = editor.scrollView.contentView.bounds.minY
     }
     static func scroll(_ scrollView: NSScrollView, to y: Double) {

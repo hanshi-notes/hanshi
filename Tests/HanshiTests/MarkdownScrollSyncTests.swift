@@ -23,21 +23,17 @@ extension AppKitWindowTests {
         content.layoutSubtreeIfNeeded(); window.displayIfNeeded()
         let sync = MarkdownScrollSync(editor: editor, preview: preview)
         sync.connect(); defer { sync.disconnect() }
-        editor.textView.textSelection = NSRange(location: 5, length: 3)
-        let selection = editor.textView.textSelection
+        editor.textView.setSelectedRange(NSRange(location: 5, length: 3))
+        let selection = editor.textView.selectedRange()
         let target = try #require(preview.composition?.anchors.first { $0.heading == "block-350" })
         preview.scroll(to: target.rendered.location, fraction: 0)
         sync.synchronize(from: .preview)
         content.layoutSubtreeIfNeeded(); window.displayIfNeeded()
         await Task.yield()
-        let manager = editor.textView.textLayoutManager
-        let textContent = editor.textView.textContentManager
-        let location = try #require(textContent.location(textContent.documentRange.location, offsetBy: target.source.location))
-        var frame = NSRect.zero
-        manager.enumerateTextSegments(in: NSTextRange(location: location), type: .standard) { _, rect, _, _ in frame = rect; return false }
+        let frame = try #require(editor.textView.textFrame(at: target.source.location))
         #expect(abs(frame.minY - editor.scrollView.contentView.bounds.minY) < 28)
         #expect(editor.scrollView.contentView.bounds.minY > 1000)
-        #expect(editor.textView.textSelection == selection)
+        #expect(editor.textView.selectedRange() == selection)
         #expect(document.text == source)
         for _ in 0..<100 { sync.synchronize(from: .preview) }
         await Task.yield()
@@ -50,7 +46,7 @@ extension AppKitWindowTests {
         let position = try #require(preview.readingPosition())
         #expect(position.sourceOffset < target.source.location)
         #expect(abs(position.sourceOffset - earlier.source.location) < 1800)
-        #expect(editor.textView.textSelection == selection)
+        #expect(editor.textView.selectedRange() == selection)
         let before = editor.scrollView.contentView.bounds.origin
         document.edit(source + "Changed")
         preview.scroll(to: target.rendered.location, fraction: 0)

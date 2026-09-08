@@ -1,19 +1,8 @@
 import AppKit
 import SwiftUI
-import STTextView
+import EditorSyntax
 
-// STTextView always inserts a tab character; Settings can ask for spaces instead.
-final class MarkdownTextView: STTextView {
-    var indentsWithTabs = false
-    var indentWidth = EditorFont.defaultTabWidth
-
-    override func insertTab(_ sender: Any?) {
-        guard !indentsWithTabs else { return super.insertTab(sender) }
-        insertText(String(repeating: " ", count: indentWidth), replacementRange: .notFound)
-    }
-}
-
-final class MarkdownEditorSession: STTextViewDelegate {
+final class MarkdownEditorSession: NSObject, NSTextViewDelegate {
     // A native snapshot avoids transcoding Cocoa strings on every scroll event.
     private(set) var displayedText: String
     let scrollView: NSScrollView
@@ -24,25 +13,37 @@ final class MarkdownEditorSession: STTextViewDelegate {
     private var lineHeight = 1.0
     private var letterSpacing = 1.0
     private var tabWidth = EditorFont.tabWidth
-    private let syntax = MarkdownSyntaxPlugin.Handle()
+    private var syntax: MarkdownSyntaxHighlighter!
     private var theme = SyntaxTheme.saved
 
     init(document: NoteDocument) {
         self.document = document
         displayedText = document.text
         displayedText.makeContiguousUTF8()
-        scrollView = MarkdownTextView.scrollableTextView()
-        // STTextView's factory always installs its own class as the document view.
-        textView = scrollView.documentView as! MarkdownTextView
-        // The text always wraps, so there is nothing to scroll sideways.
+        let storage = NSTextStorage()
+        let layout = EditorLayoutManager()
+        let container = NSTextContainer(containerSize: NSSize(width: 700, height: CGFloat.greatestFiniteMagnitude))
+        storage.addLayoutManager(layout)
+        layout.addTextContainer(container)
+        container.widthTracksTextView = true
+        textView = MarkdownTextView(frame: NSRect(x: 0, y: 0, width: 700, height: 0), textContainer: container)
+        scrollView = NSScrollView()
+        super.init()
+        scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
-        scrollView.contentView = EditorClipView()
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = textView
-        textView.text = document.text
+        textView.isRichText = false
+        textView.allowsUndo = true
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.minSize = .zero
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.string = document.text
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
         // A note still holding just the new-note template opens ready to type over its title.
         if document.text == NoteTitle.template {
-            textView.textSelection = NSRange(location: NoteTitle.template.utf16.count - 1, length: 0)
+            textView.setSelectedRange(NSRange(location: NoteTitle.template.utf16.count - 1, length: 0))
         }
         textView.isHorizontallyResizable = false
         textView.highlightSelectedLine = true
@@ -54,22 +55,23 @@ final class MarkdownEditorSession: STTextViewDelegate {
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
-        textView.isAutomaticTextCompletionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
         textView.setAccessibilityLabel("Markdown editor")
-        textView.backgroundColor = theme.background ?? .textBackgroundColor
-        textView.addPlugin(MarkdownSyntaxPlugin(theme: theme, handle: syntax))
+        applyTheme()
+        syntax = MarkdownSyntaxHighlighter(textView: textView, theme: theme)
         textView.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
         textView.gutterView?.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        textView.textDelegate = self
+        textView.delegate = self
         // Give the tab its width now: nothing else applies it until a setting changes.
         applyParagraphStyle()
     }
 
-    func textViewDidChangeText(_ notification: Notification) {
-        var text = textView.text ?? ""
+    func textDidChange(_ notification: Notification) {
+        var text = textView.string
         text.makeContiguousUTF8()
         if displayedText != text { displayedText = text }
         document?.edit(displayedText)
+        syntax.highlight(displayedText)
     }
 
     func setFont(name: String = "", family: String = "", size: Double) {
@@ -96,14 +98,26 @@ final class MarkdownEditorSession: STTextViewDelegate {
     }
 
     private func setGutterFont() {
-        textView.gutterView?.font = .monospacedSystemFont(ofSize: max(11, textView.font.pointSize - 3), weight: .regular)
+        textView.gutterView?.font = .monospacedSystemFont(ofSize: max(11, (textView.font?.pointSize ?? 14) - 3), weight: .regular)
+    }
+
+    private func applyTheme() {
+        scrollView.appearance = theme.appearance
+        textView.backgroundColor = theme.background ?? .textBackgroundColor
+        textView.textColor = theme.plain
+        textView.insertionPointColor = theme.insertionPoint
+        textView.selectedTextAttributes = [.backgroundColor: theme.selection, .foregroundColor: NSColor.selectedTextColor]
+        textView.lineHighlightColor = theme.lineHighlight
+        (textView.layoutManager as? EditorLayoutManager)?.invisiblesColor = theme.invisibles
+        textView.needsDisplay = true
+        textView.gutterView?.needsDisplay = true
     }
 
     func setSyntaxTheme(_ theme: SyntaxTheme) {
         guard self.theme != theme else { return }
         self.theme = theme
-        textView.backgroundColor = theme.background ?? .textBackgroundColor
-        syntax.coordinator?.setTheme(theme)
+        applyTheme()
+        syntax.setTheme(theme)
     }
 
     func setTypography(lineHeight: Double, ligatures: Bool, letterSpacing: Double = 1) {
@@ -123,9 +137,9 @@ final class MarkdownEditorSession: STTextViewDelegate {
     }
 
     private func applyParagraphStyle() {
-        let paragraph = textView.defaultParagraphStyle.mutableCopy() as! NSMutableParagraphStyle
+        let paragraph = (textView.defaultParagraphStyle ?? .default).mutableCopy() as! NSMutableParagraphStyle
         paragraph.lineHeightMultiple = lineHeight
-        paragraph.defaultTabInterval = (" " as NSString).size(withAttributes: [.font: textView.font]).width * Double(tabWidth)
+        paragraph.defaultTabInterval = (" " as NSString).size(withAttributes: [.font: textView.font ?? NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)]).width * Double(tabWidth)
         paragraph.tabStops = []
         textView.defaultParagraphStyle = paragraph
         applyWritingAttributes()
@@ -133,19 +147,22 @@ final class MarkdownEditorSession: STTextViewDelegate {
 
     private func applyWritingAttributes() {
         // Letter spacing is a multiple of the font's own space, so it holds across font sizes.
-        let kern = (letterSpacing - 1) * (" " as NSString).size(withAttributes: [.font: textView.font]).width
+        let kern = (letterSpacing - 1) * (" " as NSString).size(withAttributes: [.font: textView.font ?? NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)]).width
         let attributes: [NSAttributedString.Key: Any] = [
-            .paragraphStyle: textView.defaultParagraphStyle, .ligature: ligatures ? 1 : 0, .kern: kern
+            .paragraphStyle: textView.defaultParagraphStyle ?? .default, .ligature: ligatures ? 1 : 0, .kern: kern
         ]
-        textView.addAttributes(attributes, range: NSRange(location: 0, length: (textView.text ?? "").utf16.count))
+        textView.textStorage?.addAttributes(attributes, range: NSRange(location: 0, length: textView.textStorage?.length ?? 0))
         textView.typingAttributes.merge(attributes) { _, new in new }
     }
 
-    func textView(_ textView: STTextView, shouldChangeTextIn affectedCharRange: NSTextRange, replacementString: String?) -> Bool {
+    func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        syntax.pendingEdit = replacementString.map { PendingTextEdit(oldText: displayedText, oldRange: affectedCharRange, replacementText: $0) }
         // Selection commands reset typing attributes after notifying the delegate, so restore them just before insertion.
         textView.typingAttributes[.ligature] = ligatures ? 1 : 0
         return true
     }
+
+    func waitForHighlighting() async { await syntax.waitForHighlighting() }
 
     func requestFocus() {
         needsFocus = true
@@ -163,25 +180,15 @@ final class MarkdownEditorSession: STTextViewDelegate {
 
     func synchronize(_ text: String) {
         guard document?.text == text, displayedText != text else { return }
-        let selection = textView.textSelection
+        let selection = textView.selectedRange()
         displayedText = text
         displayedText.makeContiguousUTF8()
-        textView.text = text
+        textView.string = text
         applyWritingAttributes()
         textView.undoManager?.removeAllActions()
-        textView.textSelection = NSRange(location: min(selection.location, text.utf16.count), length: 0)
-    }
-}
-
-private final class EditorClipView: NSClipView {
-    override func mouseDown(with event: NSEvent) {
-        // Text and gutter views handle their own clicks; this receives the unused viewport.
-        guard let editor = documentView as? STTextView else {
-            super.mouseDown(with: event)
-            return
-        }
-        window?.makeFirstResponder(editor)
-        editor.moveToEndOfDocument(nil)
+        textView.setSelectedRange(NSRange(location: min(selection.location, text.utf16.count), length: 0))
+        syntax.highlight(displayedText)
+        textView.gutterView?.invalidateLineNumbers()
     }
 }
 
