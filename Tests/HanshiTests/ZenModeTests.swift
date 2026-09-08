@@ -22,6 +22,11 @@ extension AppKitWindowTests {
         control.toggleSidebar?()
         try await zenEventually { notebookPicker(in: host) != nil }
         let picker = try #require(notebookPicker(in: host))
+        host.layoutSubtreeIfNeeded()
+        #expect(picker.bounds.width >= 175)
+        let titleFont = picker.attributedTitle.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+        #expect(try #require(titleFont).pointSize >= 14)
+        #expect(picker.bounds.height >= 24)
         #expect(picker.itemTitles == ["All Notes"])
         #expect(picker.titleOfSelectedItem == "All Notes")
 
@@ -38,6 +43,8 @@ extension AppKitWindowTests {
         try choose("Writing")
         let note = try #require(store.notes.first)
         try await zenEventually { store.documents[note.id]?.editor.textView === window.firstResponder }
+        let notebookFont = picker.attributedTitle.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+        #expect(try #require(notebookFont).pointSize >= 14)
         let document = try #require(store.documents[note.id])
         document.editor.textView.undoManager?.groupsByEvent = false
         document.editor.textView.undoManager?.beginUndoGrouping()

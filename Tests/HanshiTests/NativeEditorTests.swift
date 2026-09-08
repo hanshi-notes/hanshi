@@ -61,6 +61,77 @@ import Testing
 }
 
 extension AppKitWindowTests {
+    @Test @MainActor func theGutterStaysInsideItsColumnWhileScrolling() throws {
+        let document = PreviewTestFixtures.document((1...200).map { "line \($0)" }.joined(separator: "\n"))
+        let session = document.editor
+        session.setGutter(true)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let pane = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        window.contentView = pane
+        // The note toolbar owns the top of the pane; the editor starts below it.
+        session.scrollView.frame = NSRect(x: 0, y: 0, width: 400, height: 300 - BarMetrics.height)
+        pane.addSubview(session.scrollView)
+        defer { window.contentView = nil; window.close() }
+        window.layoutIfNeeded()
+        let ruler = try #require(session.textView.gutterView)
+        session.scrollView.contentView.scroll(to: NSPoint(x: 0, y: 120))
+        session.scrollView.reflectScrolledClipView(session.scrollView.contentView)
+        // A scroll blits whatever AppKit counts as the ruler's own surface. Any part of it
+        // reaching past the gutter lands on the toolbar and stays there.
+        #expect(ruler.bounds.contains(ruler.visibleRect))
+    }
+
+    @Test @MainActor func lineNumbersDoNotPaintOutsideTheGutterWhenScrolling() throws {
+        let document = PreviewTestFixtures.document(String(repeating: "Wrapped text ", count: 30) + "\nSecond\nThird\n")
+        let session = document.editor
+        session.setGutter(true)
+        let editor = session.textView
+        editor.backgroundColor = .white
+        editor.textColor = .black
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 140),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = session.scrollView
+        defer { window.contentView = nil; window.close() }
+        window.layoutIfNeeded()
+        editor.layoutManager?.ensureLayout(for: try #require(editor.textContainer))
+        let ruler = try #require(editor.gutterView)
+        for offset in [0.0, 8, 30] {
+            session.scrollView.contentView.scroll(to: NSPoint(x: 0, y: offset))
+            session.scrollView.reflectScrolledClipView(session.scrollView.contentView)
+            let margin = 50
+            let width = Int(ceil(ruler.bounds.width)) + margin * 2
+            let height = Int(ceil(ruler.bounds.height)) + margin * 2
+            let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width,
+                pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+            let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            NSColor.white.setFill()
+            NSRect(x: 0, y: 0, width: width, height: height).fill()
+            context.cgContext.translateBy(x: CGFloat(margin), y: CGFloat(height - margin))
+            context.cgContext.scaleBy(x: 1, y: -1)
+            ruler.drawHashMarksAndLabels(in: ruler.bounds.insetBy(dx: -50, dy: -50))
+            NSGraphicsContext.restoreGraphicsState()
+            var outsideInk = 0
+            var insideInk = 0
+            for y in 0..<height {
+                for x in 0..<width {
+                    let color = try #require(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
+                    if color.brightnessComponent < 0.9 {
+                        if ruler.bounds.contains(NSPoint(x: x - margin, y: y - margin)) { insideInk += 1 }
+                        else { outsideInk += 1 }
+                    }
+                }
+            }
+            #expect(outsideInk == 0, "Line numbers must not paint over the toolbar at scroll offset \(offset)")
+            if offset == 0 { #expect(insideInk > 0, "Visible line numbers must still draw") }
+        }
+    }
+
     @Test @MainActor func nativeEditorUndoAndRedoUseTheResponderChain() throws {
         let document = PreviewTestFixtures.document("Original")
         let editor = document.editor.textView

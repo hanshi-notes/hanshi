@@ -51,7 +51,7 @@ struct LibraryScreen: View {
                         .ignoresSafeArea(.container, edges: .top)
                 }
                 content
-                    .frame(minWidth: sidebarVisible ? 450 : 550, idealWidth: geometry.size.width * 0.516)
+                    .frame(minWidth: sidebarVisible ? 450 : 610, idealWidth: geometry.size.width * 0.516)
                     .ignoresSafeArea(.container, edges: .top)
             }
         }
@@ -306,15 +306,15 @@ struct LibraryScreen: View {
                 HStack(spacing: BarMetrics.margin) {
                     if !sidebarVisible {
                         Picker("Notebook", selection: Binding(get: { notebookID }, set: { selectNotebook($0) })) {
-                            Text("All Notes").tag("all")
+                            Text("All Notes").font(.system(size: 14)).tag("all")
                             ForEach(store.notebooks) { notebook in
-                                Text(notebook.name).tag(notebook.id)
+                                Text(notebook.name).font(.system(size: 14)).tag(notebook.id)
                             }
                         }
                         .pickerStyle(.menu)
                         .labelsHidden()
-                        .controlSize(.small)
-                        .frame(width: 120, height: BarMetrics.controlHeight)
+                        .controlSize(.regular)
+                        .frame(width: 180, height: 28)
                         .help(notebook?.name ?? "All Notes")
                     }
                     toolbarGroup {

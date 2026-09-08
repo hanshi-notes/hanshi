@@ -38,6 +38,9 @@ final class LineNumberView: NSRulerView {
         super.init(scrollView: scrollView, orientation: .verticalRuler)
         clientView = textView
         reservedThicknessForMarkers = 0
+        // Scrolling blits the ruler over its own visible rect, and since macOS 14 that rect
+        // is unclipped: without this the gutter smears line numbers over the toolbar above.
+        clipsToBounds = true
         setAccessibilityLabel("Line numbers")
         invalidateLineNumbers()
     }
@@ -74,8 +77,11 @@ final class LineNumberView: NSRulerView {
     }
     override func drawHashMarksAndLabels(in rect: NSRect) {
         guard let text = clientView as? NSTextView, let first = text.firstVisibleCharacter() else { return }
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        // Scrolled line labels and oversized damage must stay inside the gutter.
+        bounds.intersection(rect).clip()
         text.backgroundColor.setFill()
-        // AppKit can pass damage beyond this ruler; never cover the adjacent editor.
         rect.intersection(bounds).fill()
         let attributes: [NSAttributedString.Key: Any] = [.font: font,
             .foregroundColor: (text.textColor ?? .textColor).withAlphaComponent(0.6)]
