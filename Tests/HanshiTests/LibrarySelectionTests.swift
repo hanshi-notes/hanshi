@@ -7,7 +7,8 @@ import Testing
 @Suite(.serialized) struct AppKitWindowTests {}
 
 extension AppKitWindowTests {
-    @Test @MainActor func librarySelectionOpensNotesAndFocusesTheEditor() async throws {
+    @Test(arguments: Hanshi.ContentMode.allCases) @MainActor
+    func librarySelectionOpensNotesAndKeepsTheChosenMode(mode: Hanshi.ContentMode) async throws {
         _ = NSApplication.shared
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -24,7 +25,7 @@ extension AppKitWindowTests {
         let first = try #require(store.notes.first)
         let second = try #require(store.notes.last)
         #expect(first.name == "2")
-        let host = NSHostingView(rootView: LibraryScreen().environment(store))
+        let host = NSHostingView(rootView: LibraryScreen(mode: mode).environment(store))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 650),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -32,31 +33,43 @@ extension AppKitWindowTests {
         window.orderFront(nil)
         defer { window.contentView = nil; window.close() }
         host.layoutSubtreeIfNeeded()
+        func isFocused(_ note: Note) -> Bool {
+            guard let document = store.documents[note.id] else { return false }
+            let preview = previewView(in: host)
+            if mode == .preview {
+                let session = preview?.delegate as? MarkdownPreviewSession
+                return session?.appliedSnapshot?.documentID == note.id
+                    && session?.isRendering == false && preview?.window === window
+                    && window.firstResponder === preview && document.editor.textView.window == nil
+            }
+            return window.firstResponder === document.editor.textView
+                && (preview != nil) == (mode == .split)
+        }
 
         try clickRow(panel: 0, top: 150, in: host, window: window)
-        try await eventually { store.documents[first.id]?.editor.textView === window.firstResponder }
+        try await eventually { isFocused(first) }
         let firstDocument = try #require(store.documents[first.id])
         #expect(firstDocument.text == "# 2.md\n")
 
         try clickRow(panel: 1, top: 110, in: host, window: window)
-        try await eventually { store.documents[second.id]?.editor.textView === window.firstResponder }
+        try await eventually { isFocused(second) }
         let secondDocument = try #require(store.documents[second.id])
         secondDocument.editor.textView.setSelectedRange(NSRange(location: 2, length: 0))
         window.makeFirstResponder(nil)
         try clickRow(panel: 1, top: 110, in: host, window: window)
-        try await eventually { window.firstResponder === secondDocument.editor.textView }
+        try await eventually { isFocused(second) }
         #expect(secondDocument.editor.textView.selectedRange() == NSRange(location: 2, length: 0))
 
         try clickRow(panel: 0, top: 118, in: host, window: window)
-        try await eventually { secondDocument.editor.textView.window == nil }
+        try await eventually { secondDocument.editor.textView.window == nil && previewView(in: host) == nil }
         #expect(window.firstResponder !== secondDocument.editor.textView)
         #expect(store.documents.count == 2)
         try clickRow(panel: 0, top: 150, in: host, window: window)
-        try await eventually { window.firstResponder === firstDocument.editor.textView }
+        try await eventually { isFocused(first) }
         // Consecutive selections must leave the last requested note focused.
         try clickRow(panel: 1, top: 110, in: host, window: window)
         try clickRow(panel: 0, top: 150, in: host, window: window)
-        try await eventually { window.firstResponder === firstDocument.editor.textView }
+        try await eventually { isFocused(first) }
         #expect(!store.hasUnsavedChanges)
     }
 }
@@ -107,10 +120,6 @@ extension AppKitWindowTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 650), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
         defer { window.contentView = nil; window.close() }
-        func previewView(in view: NSView) -> PreviewTextView? {
-            if let preview = view as? PreviewTextView { return preview }
-            return view.subviews.lazy.compactMap { previewView(in: $0) }.first
-        }
         try await eventually { previewView(in: host)?.string.contains("First") == true }
         let preview = try #require(previewView(in: host))
         let session = try #require(preview.delegate as? MarkdownPreviewSession)
@@ -128,7 +137,18 @@ extension AppKitWindowTests {
         }
         #expect(!store.hasUnsavedChanges)
         try clickRow(panel: 1, top: 80, in: host, window: window)
-        try await eventually { store.documents[first.id]?.editor.textView === window.firstResponder }
-        #expect(store.documents[first.id]?.editor.textView.window != nil)
+        if mode == .preview {
+            try await eventually { previewView(in: host)?.string.contains("First") == true }
+            try await eventually { window.firstResponder === previewView(in: host) }
+            #expect(store.documents[first.id]?.editor.textView.window == nil)
+        } else {
+            try await eventually { store.documents[first.id]?.editor.textView === window.firstResponder }
+            #expect(store.documents[first.id]?.editor.textView.window != nil)
+        }
     }
+}
+
+@MainActor private func previewView(in view: NSView) -> PreviewTextView? {
+    if let preview = view as? PreviewTextView { return preview }
+    return view.subviews.lazy.compactMap { previewView(in: $0) }.first
 }

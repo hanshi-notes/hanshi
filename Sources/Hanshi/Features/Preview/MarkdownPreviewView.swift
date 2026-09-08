@@ -53,7 +53,7 @@ import Observation
         textView.autoresizingMask = [.width]
         textView.minSize = .zero
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainerInset = NSSize(width: 24, height: 24)
+        textView.textContainerInset = PreviewTheme().inset
         textView.backgroundColor = .white
         textView.setAccessibilityLabel("Markdown preview")
         scrollView.contentView = PreviewClipView()
@@ -160,7 +160,7 @@ import Observation
         self.composition = result
         appliedSnapshot = snapshot
         message = recipe.diagnostics.isEmpty ? nil : Array(Set(recipe.diagnostics)).sorted().joined(separator: " · ")
-        textView.textContainerInset = NSSize(width: snapshot.theme.margin, height: snapshot.theme.margin)
+        textView.textContainerInset = snapshot.theme.inset
         textView.textStorage?.beginEditing()
         textView.textStorage?.setAttributedString(result.text)
         textView.textStorage?.endEditing()

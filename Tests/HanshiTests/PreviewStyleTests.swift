@@ -61,6 +61,26 @@ import Testing
 }
 
 extension AppKitWindowTests {
+    @Test(arguments: ["# First **heading**", "First paragraph", "\n\n# First **heading**"])
+    @MainActor func previewStartsNearTheTopWithoutCrowdingLaterHeadings(_ opening: String) async throws {
+        let session = MarkdownPreviewSession(debounce: .zero)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 500),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = session.scrollView
+        defer { session.hide(); window.contentView = nil; window.close() }
+        window.layoutIfNeeded()
+        session.show(PreviewTestFixtures.snapshot(opening + "\n\n# Later heading\n"))
+        await session.waitForRendering()
+        let first = try #require(session.frame(at: 0))
+        #expect((10...18).contains(first.minY), "The preview should start with a small top margin, got \(first.minY) pt")
+        #expect(first.minX == 36, "Keep the existing horizontal reading margin")
+        let storage = try #require(session.textView.textStorage)
+        let later = (storage.string as NSString).range(of: "Later heading")
+        let style = try #require(storage.attribute(.paragraphStyle, at: later.location, effectiveRange: nil) as? NSParagraphStyle)
+        #expect(style.paragraphSpacingBefore == 20, "Headings within the document still need separation")
+    }
+
     @Test @MainActor func previewCodePaddingSurvivesWrappingAndResize() async throws {
         _ = NSApplication.shared
         let source = """

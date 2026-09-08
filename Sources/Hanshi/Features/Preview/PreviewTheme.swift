@@ -4,7 +4,7 @@ import HighlightKit
 nonisolated struct PreviewTheme: Equatable, Sendable {
     var bodySize = 17.0
     var codeSize = 14.0
-    var margin = 36.0
+    var inset = NSSize(width: 36, height: 12)
 }
 
 extension NSAttributedString.Key {

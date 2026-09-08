@@ -494,10 +494,7 @@ struct LibraryScreen: View {
         previewSession.focusDocumentID = nil
         searchFocused = false
         noteID = id
-        if id != nil {
-            if mode == .preview { mode = .source }
-            document?.editor.requestFocus()
-        }
+        if id != nil { focusSelectedNote() }
     }
 
     private func openSelectedNote() async {
@@ -506,7 +503,16 @@ struct LibraryScreen: View {
         await store.open(selectedNote)
         guard !Task.isCancelled, noteID == selectedNote.id else { return }
         openingNoteID = nil
-        if !openingFromPreview { document?.editor.requestFocus() }
+        if !openingFromPreview { focusSelectedNote() }
+    }
+
+    private func focusSelectedNote() {
+        if mode == .preview {
+            previewSession.focusDocumentID = noteID
+            previewSession.focusIfNeeded()
+        } else {
+            document?.editor.requestFocus()
+        }
     }
 
     private func openPreviewNote(_ url: URL, fragment: String?) -> Bool {
