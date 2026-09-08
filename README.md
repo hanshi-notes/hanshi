@@ -23,6 +23,8 @@ Scripts/package_app.sh
 open build/Hanshi.app
 ```
 
+Packaging requires Xcode's asset catalog compiler (`xcrun actool`). The app icon comes from `Sources/Hanshi/Resources/Assets.xcassets/AppIcon.appiconset`; the packaging script compiles the catalog into the app's resources and merges its icon metadata before signing. After packaging, run `python3 Tests/Scripts/test_app_icon.py` to verify the icon metadata, all icon resolutions, and the bundle signature.
+
 Building Mermaid requires Rust/Cargo (install the stable toolchain from [rustup.rs](https://rustup.rs)). `Scripts/build_mermaid.sh` builds the locked merman/resvg static library for the host architecture; rerun it after changes to `Native/Mermaid`. The packaging script runs it automatically. Rust, Node and JavaScript runtimes are not required on the end user’s Mac.
 
 For release packaging checks, run `Scripts/package_app.sh release`, `Scripts/check_preview_package.sh`, and `Scripts/check_editor_package.sh`. The editor check verifies the 13 retained grammar configurations, Markdown/Swift highlighting, all 13 CotEditor themes, and editor notices. The preview check renders formulas and Mermaid using the release engine objects and resources. Both use disposable apps with `.build` temporarily hidden (restoring it on exit); run them sequentially after builds finish. Toolchain-selection regressions run with `python3 Tests/Scripts/test_swift_toolchain.py`. Native bridge tests run with `cargo test --release --locked --manifest-path Native/Mermaid/Cargo.toml --target-dir .build/mermaid`.

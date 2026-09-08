@@ -40,7 +40,7 @@ let package = Package(
             .product(name: "SwaTex", package: "SwaTex"),
             .product(name: "SwaTexRender", package: "SwaTex"),
             "EditorSyntax"
-        ], resources: [.copy("Resources/ThirdPartyNotices"), .copy("Resources/Themes"), .copy("Resources/Syntax")], swiftSettings: [
+        ], exclude: ["Resources/Assets.xcassets"], resources: [.copy("Resources/ThirdPartyNotices"), .copy("Resources/Themes"), .copy("Resources/Syntax")], swiftSettings: [
             .defaultIsolation(MainActor.self),
             .enableUpcomingFeature("NonisolatedNonsendingByDefault")
         ], linkerSettings: [

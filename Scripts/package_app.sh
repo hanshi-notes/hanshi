@@ -42,5 +42,11 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>NSDocumentsFolderUsageDescription</key><string>Hanshi stores your notebooks and Markdown files in Documents/hanshi.</string>
 </dict></plist>
 PLIST
+# SwiftPM's command-line build does not compile asset catalogs into the app bundle.
+xcrun actool "$TASK_ROOT/Sources/Hanshi/Resources/Assets.xcassets" \
+    --compile "$APP/Contents/Resources" --platform macosx \
+    --minimum-deployment-target 15.0 --app-icon AppIcon \
+    --output-partial-info-plist "$TASK_ROOT/build/asset-info.plist"
+/usr/libexec/PlistBuddy -c "Merge $TASK_ROOT/build/asset-info.plist" "$APP/Contents/Info.plist"
 codesign --force --sign - "$APP"
 echo "Created $APP"
