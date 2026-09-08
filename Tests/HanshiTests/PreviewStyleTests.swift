@@ -26,18 +26,14 @@ import Testing
     defer { session.hide() }
     session.show(PreviewTestFixtures.snapshot("- [ ] Pending\n- [x] Done\n\nLiteral ☑ stays text."))
     await session.waitForRendering()
-    let storage = try #require(session.textView.textStorage)
-    var labels: [String] = []
-    storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
-        if let cell = (value as? NSTextAttachment)?.attachmentCell as? NSCell,
-           let label = cell.accessibilityLabel() { labels.append(label) }
-    }
-    #expect(labels == ["Incomplete task", "Completed task"])
+    let accessible = try #require(session.textView.accessibilityValue() as? String)
+    #expect(accessible.contains("[ ] Pending"))
+    #expect(accessible.contains("[x] Done"))
     session.textView.selectAll(nil)
     let pasteboard = NSPasteboard.withUniqueName()
     defer { pasteboard.releaseGlobally() }
     #expect(session.textView.writeSelection(to: pasteboard, types: [.string, .rtf]))
-    #expect(pasteboard.string(forType: .string) == "[ ] Pending\n[x] Done\nLiteral ☑ stays text.\n")
+    #expect(pasteboard.string(forType: .string) == "- [ ] Pending\n- [x] Done\n\nLiteral ☑ stays text.")
 }
 
 @Test @MainActor func previewCodeBackgroundHasRoundedCorners() throws {

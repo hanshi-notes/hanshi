@@ -5,6 +5,7 @@ import Observation
 final class NoteStore {
     private(set) var notebooks: [Notebook] = []
     private(set) var isBusy = false
+    private(set) var hasLoaded = false
     var errorMessage: String?
     let files: LibraryFiles
     let sessionID = UUID()
@@ -51,6 +52,7 @@ final class NoteStore {
                     return note
                 })
             }
+            hasLoaded = true
             for document in documents.values { await document.reload(using: files) }
         }
         catch { errorMessage = error.localizedDescription }

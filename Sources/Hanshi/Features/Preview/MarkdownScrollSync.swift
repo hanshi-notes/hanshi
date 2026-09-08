@@ -7,14 +7,12 @@ nonisolated struct MarkdownReadingPosition: Sendable {
 
 extension MarkdownPreviewSession {
     func frame(at offset: Int, length: Int = 1) -> NSRect? {
-        textView.textFrame(at: offset, length: length)
+        engine.previewFrame(for: NSRange(location: offset, length: length))
     }
     func readingPosition() -> MarkdownReadingPosition? {
-        guard let composition, !composition.anchors.isEmpty, let manager = textView.layoutManager,
-              let container = textView.textContainer else { return nil }
+        guard let composition, !composition.anchors.isEmpty else { return nil }
         let y = scrollView.contentView.bounds.minY
-        let point = NSPoint(x: 1, y: max(0, y - textView.textContainerOrigin.y + 1))
-        let offset = manager.characterIndex(for: point, in: container, fractionOfDistanceBetweenInsertionPoints: nil)
+        guard let offset = engine.previewCharacter(at: NSPoint(x: textView.textContainerOrigin.x + 1, y: y + 1)) else { return nil }
         let anchor = MarkdownScrollSync.anchor(at: offset, anchors: composition.anchors, source: false)
         guard let anchor, let rect = frame(at: anchor.rendered.location, length: anchor.rendered.length) else { return nil }
         return MarkdownReadingPosition(sourceOffset: anchor.source.location, fraction: min(1, max(0, (y - rect.minY) / max(1, rect.height))))

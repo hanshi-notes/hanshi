@@ -7,10 +7,11 @@ import HighlightKit
 nonisolated struct PreviewSnapshot: Equatable, Sendable {
     let library: UUID
     let documentID: String
-    let text: String
+    var text: String
     let url: URL
     let root: URL
     var theme = PreviewTheme()
+    var settings = PreviewSettings()
     var resources = 0
     var scale = 2.0
 }

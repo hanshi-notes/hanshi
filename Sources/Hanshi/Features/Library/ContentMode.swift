@@ -1,6 +1,8 @@
 import Foundation
 
 enum ContentMode: String, CaseIterable, Identifiable {
+    static let startupKey = "startupContentMode"
+
     case source = "Editor"
     case preview = "Preview"
     case split = "Split"

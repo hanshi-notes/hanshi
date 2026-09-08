@@ -2,7 +2,7 @@ import SwiftUI
 
 struct LibraryScreen: View {
     @Environment(NoteStore.self) private var store
-    @State private var notebookID = "all"
+    @AppStorage(Notebook.selectionKey) private var notebookID = "all"
     @State private var noteID: String?
     @State private var query = ""
     @State private var mode = ContentMode.source
@@ -22,8 +22,9 @@ struct LibraryScreen: View {
     @State private var trashingNotebook: Notebook?
     @FocusState private var searchFocused: Bool
 
-    init(mode: ContentMode = .source, noteID: String? = nil) {
-        _mode = State(initialValue: mode)
+    init(mode: ContentMode? = nil, noteID: String? = nil, defaults: UserDefaults = .standard) {
+        _notebookID = AppStorage(wrappedValue: "all", Notebook.selectionKey, store: defaults)
+        _mode = State(initialValue: mode ?? defaults.string(forKey: ContentMode.startupKey).flatMap(ContentMode.init(rawValue:)) ?? .source)
         _noteID = State(initialValue: noteID)
     }
 
@@ -85,8 +86,10 @@ struct LibraryScreen: View {
                 document.editor.requestFocus()
             }
         }
-        .onChange(of: store.notebooks.map(\.id)) { _, ids in
-            if notebookID != "all", !ids.contains(notebookID) { notebookID = "all" }
+        .onChange(of: store.resourceGeneration, initial: true) {
+            // An empty catalog before the first successful load is not a deleted notebook.
+            guard store.hasLoaded else { return }
+            if notebookID != "all", !store.notebooks.contains(where: { $0.id == notebookID }) { notebookID = "all" }
         }
         .onChange(of: store.notes.map(\.id)) { _, ids in
             if let noteID, !ids.contains(noteID), store.documents[noteID] == nil { self.noteID = nil }

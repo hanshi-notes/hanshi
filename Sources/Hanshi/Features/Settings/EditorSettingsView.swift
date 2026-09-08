@@ -54,6 +54,8 @@ enum EditorFont {
 struct SettingsView: View {
     var body: some View {
         TabView {
+            GeneralSettingsView()
+                .tabItem { Label("General", systemImage: "gearshape") }
             EditorSettingsView()
                 .tabItem { Label("Appearance", systemImage: "eyeglasses") }
             TextEditingSettingsView()
@@ -64,7 +66,29 @@ struct SettingsView: View {
     }
 }
 
+struct GeneralSettingsView: View {
+    @AppStorage(ContentMode.startupKey) private var startupMode = ContentMode.source
+
+    var body: some View {
+        Form {
+            Section("Startup") {
+                Picker("View when opening the app", selection: $startupMode) {
+                    ForEach(ContentMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .help("Applies the next time the app opens.")
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 520, height: 440)
+    }
+}
+
 struct TextEditingSettingsView: View {
+    @AppStorage(PreviewSettings.allowsEditingKey) private var allowsPreviewEditing = true
+    @AppStorage(PreviewSettings.showsMarkdownMarkersKey) private var showsPreviewMarkers = false
     @AppStorage(EditorFont.gutterKey) private var showsGutter = true
     @AppStorage(EditorFont.indentsWithTabsKey) private var indentsWithTabs = false
     @AppStorage(EditorFont.tabWidthKey) private var tabWidth = EditorFont.defaultTabWidth
@@ -101,6 +125,16 @@ struct TextEditingSettingsView: View {
             Text("A tab is as wide as this many spaces, whichever key inserts it.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
+            Section("Markdown Preview") {
+                Toggle("Allow editing in preview", isOn: $allowsPreviewEditing)
+                    .toggleStyle(.switch)
+                    .accessibilityIdentifier(PreviewSettings.allowsEditingKey)
+                Toggle("Show Markdown markers while editing preview", isOn: $showsPreviewMarkers)
+                    .toggleStyle(.switch)
+                    .accessibilityIdentifier(PreviewSettings.showsMarkdownMarkersKey)
+                    .disabled(!allowsPreviewEditing)
+                    .help("Reveals markers such as *, ** and ~~ around the text you are editing.")
+            }
         }
         .formStyle(.grouped)
         .frame(width: 520, height: 440)

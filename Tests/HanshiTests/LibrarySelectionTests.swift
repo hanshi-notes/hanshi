@@ -25,7 +25,8 @@ extension AppKitWindowTests {
         let first = try #require(store.notes.first)
         let second = try #require(store.notes.last)
         #expect(first.name == "2")
-        let host = NSHostingView(rootView: LibraryScreen(mode: mode).environment(store))
+        let preferences = TestPreferences(); defer { preferences.remove() }
+        let host = NSHostingView(rootView: LibraryScreen(mode: mode, defaults: preferences.defaults).environment(store))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 650),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -37,7 +38,7 @@ extension AppKitWindowTests {
             guard let document = store.documents[note.id] else { return false }
             let preview = previewView(in: host)
             if mode == .preview {
-                let session = preview?.delegate as? MarkdownPreviewSession
+                let session = previewSession(in: host)
                 return session?.appliedSnapshot?.documentID == note.id
                     && session?.isRendering == false && preview?.window === window
                     && window.firstResponder === preview && document.editor.textView.window == nil
@@ -116,13 +117,14 @@ extension AppKitWindowTests {
         let second = try #require(store.notes.last)
         // Cached navigation reuses the representable; uncached navigation unmounts it while opening.
         if cached { await store.open(second) }
-        let host = NSHostingView(rootView: LibraryScreen(mode: mode, noteID: first.id).environment(store))
+        let preferences = TestPreferences(); defer { preferences.remove() }
+        let host = NSHostingView(rootView: LibraryScreen(mode: mode, noteID: first.id, defaults: preferences.defaults).environment(store))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 650), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
         defer { window.contentView = nil; window.close() }
         try await eventually { previewView(in: host)?.string.contains("First") == true }
         let preview = try #require(previewView(in: host))
-        let session = try #require(preview.delegate as? MarkdownPreviewSession)
+        let session = try #require(previewSession(in: host))
         try await eventually { !session.isRendering }
         window.makeFirstResponder(preview)
         session.followLink("Second.md#block-120")
@@ -148,7 +150,138 @@ extension AppKitWindowTests {
     }
 }
 
-@MainActor private func previewView(in view: NSView) -> PreviewTextView? {
-    if let preview = view as? PreviewTextView { return preview }
+@MainActor private func previewView(in view: NSView) -> NSTextView? {
+    if let preview = view as? NSTextView, preview.accessibilityLabel() == "Markdown preview" { return preview }
     return view.subviews.lazy.compactMap { previewView(in: $0) }.first
+}
+
+@MainActor private func previewSession(in view: NSView) -> MarkdownPreviewSession? {
+    if let container = view as? PreviewContainerView { return container.session }
+    return view.subviews.lazy.compactMap { previewSession(in: $0) }.first
+}
+
+struct TestPreferences {
+    let suite = "HanshiTests.\(UUID().uuidString)"
+    let defaults: UserDefaults
+    init() { defaults = UserDefaults(suiteName: suite)! }
+    func remove() { defaults.removePersistentDomain(forName: suite) }
+}
+
+extension AppKitWindowTests {
+    @Test @MainActor func selectedNotebookSurvivesRelaunchAndRename() async throws {
+        let preferences = TestPreferences(); defer { preferences.remove() }
+        let fixture = try PreviewResourceFixture(); defer { fixture.remove() }
+        let files = LibraryFiles(root: fixture.root)
+        let alpha = try await files.createNotebook(named: "Alpha")
+        let writing = try await files.createNotebook(named: "Writing")
+        try Data("Alpha note".utf8).write(to: alpha.appendingPathComponent("A.md"))
+        try Data("Writing note".utf8).write(to: writing.appendingPathComponent("B.md"))
+        let store = NoteStore(root: fixture.root)
+        await store.refresh()
+        let target = try #require(store.notebooks.first { $0.name == "Writing" })
+        let host = NSHostingView(rootView: LibraryScreen(defaults: preferences.defaults).environment(store))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 650), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host; window.orderFront(nil); host.layoutSubtreeIfNeeded()
+        defer { window.contentView = nil; window.close() }
+        try clickRow(panel: 0, top: 150, in: host, window: window)
+        try await eventually { preferences.defaults.string(forKey: Notebook.selectionKey) == target.id }
+        window.contentView = nil
+        _ = try files.renameNotebook(at: writing, to: "Renamed")
+
+        let reopenedDefaults = try #require(UserDefaults(suiteName: preferences.suite))
+        let reopenedStore = NoteStore(root: fixture.root)
+        let reopened = NSHostingView(rootView: LibraryScreen(defaults: reopenedDefaults).environment(reopenedStore))
+        window.contentView = reopened; reopened.layoutSubtreeIfNeeded()
+        // Mount before the asynchronous catalog load, as at real application startup.
+        await Task.yield()
+        #expect(reopenedDefaults.string(forKey: Notebook.selectionKey) == target.id)
+        await reopenedStore.refresh()
+        try await eventually { reopenedStore.notebooks.count == 2 }
+        reopened.layoutSubtreeIfNeeded()
+        try clickRow(panel: 1, top: 80, in: reopened, window: window)
+        let note = try #require(reopenedStore.notes.first { $0.name == "B" })
+        try await eventually { reopenedStore.documents[note.id]?.editor.textView.window === window }
+        #expect(reopenedDefaults.string(forKey: Notebook.selectionKey) == target.id)
+        #expect(reopenedStore.documents[note.id]?.text == "Writing note")
+        try clickRow(panel: 0, top: 54, in: reopened, window: window)
+        try await eventually { reopenedDefaults.string(forKey: Notebook.selectionKey) == "all" }
+        window.contentView = nil
+        let allNotes = NSHostingView(rootView: LibraryScreen(defaults: reopenedDefaults).environment(reopenedStore))
+        window.contentView = allNotes; allNotes.layoutSubtreeIfNeeded()
+        try clickRow(panel: 1, top: 80, in: allNotes, window: window)
+        let alphaNote = try #require(reopenedStore.notes.first { $0.name == "A" })
+        try await eventually { reopenedStore.documents[alphaNote.id]?.editor.textView.window === window }
+    }
+
+    @Test(arguments: [false, true]) @MainActor
+    func missingNotebookFallsBackAfterSuccessfulCatalogLoad(preloaded: Bool) async throws {
+        let preferences = TestPreferences(); defer { preferences.remove() }
+        preferences.defaults.set("deleted-notebook", forKey: Notebook.selectionKey)
+        let fixture = try PreviewResourceFixture(); defer { fixture.remove() }
+        let store = NoteStore(root: fixture.root)
+        if preloaded { await store.refresh() }
+        let host = NSHostingView(rootView: LibraryScreen(defaults: preferences.defaults).environment(store))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 650), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        if !preloaded {
+            await Task.yield()
+            #expect(preferences.defaults.string(forKey: Notebook.selectionKey) == "deleted-notebook")
+            await store.refresh()
+        }
+        try await eventually { preferences.defaults.string(forKey: Notebook.selectionKey) == "all" }
+    }
+
+    @Test(arguments: ["Editor", "Preview", "Split", "", "obsolete-value"]) @MainActor
+    func startupViewSettingAppliesOnLaunchAndKeepsTheCurrentSession(_ saved: String) async throws {
+        let preferences = TestPreferences(); defer { preferences.remove() }
+        let fixture = try PreviewResourceFixture(); defer { fixture.remove() }
+        let store = NoteStore(root: fixture.root)
+        await store.refresh()
+        let folder = try #require(await store.createNotebook(named: "Notes"))
+        let notebook = try #require(store.notebooks.first { $0.id == folder })
+        let noteID = try #require(await store.createNote(in: notebook.url))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 650), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        let settings = NSHostingView(rootView: GeneralSettingsView().defaultAppStorage(preferences.defaults))
+        window.contentView = settings; window.orderFront(nil); settings.layoutSubtreeIfNeeded()
+        func picker(in view: NSView) -> NSSegmentedControl? {
+            if let picker = view as? NSSegmentedControl { return picker }
+            return view.subviews.lazy.compactMap { picker(in: $0) }.first
+        }
+        let control = try #require(picker(in: settings))
+        #expect(control.selectedSegment == 0)
+        #expect((0..<control.segmentCount).compactMap { control.label(forSegment: $0) } == ["Editor", "Preview", "Split"])
+        if let mode = Hanshi.ContentMode(rawValue: saved) {
+            let index = try #require(Hanshi.ContentMode.allCases.firstIndex(of: mode))
+            control.selectedSegment = index
+            control.sendAction(control.action, to: control.target)
+            try await eventually { preferences.defaults.string(forKey: Hanshi.ContentMode.startupKey) == saved }
+        } else if !saved.isEmpty {
+            preferences.defaults.set(saved, forKey: Hanshi.ContentMode.startupKey)
+        }
+        let expected = Hanshi.ContentMode(rawValue: saved) ?? .source
+        let host = NSHostingView(rootView: LibraryScreen(noteID: noteID, defaults: preferences.defaults).environment(store))
+        window.contentView = host; window.orderFront(nil); host.layoutSubtreeIfNeeded()
+        func matches(_ mode: Hanshi.ContentMode, in host: NSView) -> Bool {
+            guard let document = store.documents[noteID] else { return false }
+            let preview = previewSession(in: host)
+            return (document.editor.textView.window === window) == (mode != .preview)
+                && (preview?.appliedSnapshot?.documentID == noteID) == (mode != .source)
+        }
+        try await eventually { matches(expected, in: host) }
+        let next: Hanshi.ContentMode = expected == .preview ? .source : .preview
+        preferences.defaults.set(next.rawValue, forKey: Hanshi.ContentMode.startupKey)
+        host.rootView = LibraryScreen(noteID: noteID, defaults: preferences.defaults).environment(store)
+        host.layoutSubtreeIfNeeded()
+        await Task.yield()
+        #expect(matches(expected, in: host), "A startup preference must not change the open note's mode")
+        window.contentView = nil
+        let relaunched = NSHostingView(rootView: LibraryScreen(noteID: noteID, defaults: preferences.defaults).environment(store))
+        window.contentView = relaunched; relaunched.layoutSubtreeIfNeeded()
+        try await eventually { matches(next, in: relaunched) }
+    }
 }

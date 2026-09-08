@@ -10,7 +10,8 @@ extension AppKitWindowTests {
         let store = NoteStore(root: fixture.root)
         await store.refresh()
         let control = ZenTestControl()
-        let host = NSHostingView(rootView: LibraryScreen().environment(store)
+        let preferences = TestPreferences(); defer { preferences.remove() }
+        let host = NSHostingView(rootView: LibraryScreen(defaults: preferences.defaults).environment(store)
             .overlay { ZenBindingProbe(control: control).frame(width: 0, height: 0) })
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1020, height: 650),
             styleMask: [.titled, .resizable], backing: .buffered, defer: false)
@@ -88,7 +89,8 @@ extension AppKitWindowTests {
         let document = try #require(store.documents[note.id])
         let editor = document.editor
         let control = ZenTestControl()
-        let host = NSHostingView(rootView: LibraryScreen(mode: mode, noteID: note.id)
+        let preferences = TestPreferences(); defer { preferences.remove() }
+        let host = NSHostingView(rootView: LibraryScreen(mode: mode, noteID: note.id, defaults: preferences.defaults)
             .environment(store).overlay { ZenBindingProbe(control: control).frame(width: 0, height: 0) })
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 650),
             styleMask: [.titled, .resizable], backing: .buffered, defer: false)
@@ -180,8 +182,8 @@ private struct ZenBindingProbe: View {
     return view.subviews.lazy.compactMap { librarySplit(in: $0) }.first
 }
 
-@MainActor private func zenPreview(in view: NSView) -> PreviewTextView? {
-    if let preview = view as? PreviewTextView { return preview }
+@MainActor private func zenPreview(in view: NSView) -> NSTextView? {
+    if let preview = view as? NSTextView, preview.accessibilityLabel() == "Markdown preview" { return preview }
     return view.subviews.lazy.compactMap { zenPreview(in: $0) }.first
 }
 
