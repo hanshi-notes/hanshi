@@ -18,16 +18,10 @@ let package = Package(
             .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter"),
             .product(name: "SwiftTreeSitterLayer", package: "SwiftTreeSitter")
         ] + [
-            "TreeSitterAstro", "TreeSitterBash", "TreeSitterC", "TreeSitterCPP",
-            "TreeSitterCSharp", "TreeSitterCSS", "TreeSitterComment", "TreeSitterElixir",
-            "TreeSitterElm", "TreeSitterGo", "TreeSitterHTML", "TreeSitterHaskell",
-            "TreeSitterJSDoc", "TreeSitterJSON", "TreeSitterJSON5", "TreeSitterJava",
-            "TreeSitterJavaScript", "TreeSitterJulia", "TreeSitterLaTeX", "TreeSitterLua",
-            "TreeSitterMarkdown", "TreeSitterMarkdownInline", "TreeSitterOCaml", "TreeSitterPHP",
-            "TreeSitterPerl", "TreeSitterPython", "TreeSitterR", "TreeSitterRegex",
-            "TreeSitterRuby", "TreeSitterRust", "TreeSitterSCSS", "TreeSitterSQL",
-            "TreeSitterSvelte", "TreeSitterSwift", "TreeSitterTOML", "TreeSitterTSX",
-            "TreeSitterTypeScript", "TreeSitterYAML",
+            "TreeSitterBash", "TreeSitterCSS", "TreeSitterHTML", "TreeSitterJSDoc",
+            "TreeSitterJSON", "TreeSitterJavaScript", "TreeSitterMarkdown", "TreeSitterMarkdownInline",
+            "TreeSitterPython", "TreeSitterRegex", "TreeSitterSwift", "TreeSitterTypeScript",
+            "TreeSitterYAML",
         ].map {
             .product(name: $0, package: "TreeSitterLanguages")
         }),

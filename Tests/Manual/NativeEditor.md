@@ -4,6 +4,8 @@ Build with `Scripts/package_app.sh release`. Run `Scripts/check_editor_package.s
 
 Use a disposable notebook containing short Markdown, an empty note, Unicode/RTL prose, wrapped lines, and the 1 MB corpus from `NativeEditorTests.swift`.
 
+- Check Swift, Python, Bash, JavaScript, TypeScript, JSON, HTML and CSS fences, plus YAML metadata. SQL, Perl and other unsupported fence languages should retain the Markdown literal color in the editor; their preview highlighting is unchanged.
+
 - Switch Source → Preview → Split and back. Selection, draft text, scroll position and undo must survive.
 - Scroll from either panel to distant headings and back. Resize Split; both panels must stay aligned without feedback loops.
 - Click blank space below text at the left, middle and right of the editor. Focus must move to the editor, with the insertion point at the end. Click a text line to place the caret normally.

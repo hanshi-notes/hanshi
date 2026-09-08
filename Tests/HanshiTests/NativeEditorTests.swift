@@ -2,6 +2,24 @@ import AppKit
 import Testing
 @testable import Hanshi
 
+@Test(arguments: ["sql", "perl", "c_sharp", "haskell", "unknown-language"])
+@MainActor func unsupportedFenceLanguagesKeepLiteralColorAndSurroundingMarkdown(language: String) async throws {
+    _ = NSApplication.shared
+    let source = "# Before\n\n```\(language)\nSELECT 42;\n```\n\n## After\n"
+    let document = PreviewTestFixtures.document(source)
+    document.editor.setSyntaxTheme(.system)
+    await document.editor.waitForHighlighting()
+    let layout = try #require(document.editor.textView.layoutManager)
+    for (text, expected) in [("42", NSColor.systemBrown), ("Before", .systemBlue), ("After", .systemBlue)] {
+        let offset = (source as NSString).range(of: text).location
+        #expect(layout.temporaryAttribute(.foregroundColor, atCharacterIndex: offset, effectiveRange: nil) as? NSColor == expected)
+    }
+    #expect(SyntaxResources.languageProvider(named: language) == nil)
+    #expect(document.text == source)
+    #expect(!document.isModified)
+    #expect(document.editor.textView.undoManager?.canUndo == false)
+}
+
 @Test @MainActor func nativeEditorLineNumbersFollowUnicodeEditsAndUndo() throws {
     _ = NSApplication.shared
     let document = PreviewTestFixtures.document("One 😀\r\nTwo\nThree")

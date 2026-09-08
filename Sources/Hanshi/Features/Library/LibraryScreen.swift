@@ -51,7 +51,7 @@ struct LibraryScreen: View {
                         .ignoresSafeArea(.container, edges: .top)
                 }
                 content
-                    .frame(minWidth: 450, idealWidth: geometry.size.width * 0.516)
+                    .frame(minWidth: sidebarVisible ? 450 : 550, idealWidth: geometry.size.width * 0.516)
                     .ignoresSafeArea(.container, edges: .top)
             }
         }
@@ -130,11 +130,7 @@ struct LibraryScreen: View {
             Color.clear.frame(height: BarMetrics.height)
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    Button {
-                        notebookID = "all"
-                        query = ""
-                        selectNote(store.notes.first?.id)
-                    } label: {
+                    Button { selectNotebook("all") } label: {
                         sidebarRow("All Notes", icon: "doc.text.fill", count: store.notes.count,
                                    selected: notebookID == "all")
                     }
@@ -146,11 +142,7 @@ struct LibraryScreen: View {
                     .disabled(store.isBusy)
 
                     ForEach(store.notebooks) { notebook in
-                        Button {
-                            notebookID = notebook.id
-                            query = ""
-                            selectNote(notebook.notes.first?.id)
-                        } label: {
+                        Button { selectNotebook(notebook.id) } label: {
                             sidebarRow(notebook.name, count: notebook.notes.count,
                                        selected: notebookID == notebook.id)
                         }
@@ -312,6 +304,19 @@ struct LibraryScreen: View {
         VStack(spacing: 0) {
             if !isZen {
                 HStack(spacing: BarMetrics.margin) {
+                    if !sidebarVisible {
+                        Picker("Notebook", selection: Binding(get: { notebookID }, set: { selectNotebook($0) })) {
+                            Text("All Notes").tag("all")
+                            ForEach(store.notebooks) { notebook in
+                                Text(notebook.name).tag(notebook.id)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .controlSize(.small)
+                        .frame(width: 120, height: BarMetrics.controlHeight)
+                        .help(notebook?.name ?? "All Notes")
+                    }
                     toolbarGroup {
                         toolbarButton("Save (⌘S)", icon: document?.isModified == true ? "square.and.arrow.down.fill" : "square.and.arrow.down",
                                       action: document.map { document in { Task { await document.save() } } })
@@ -475,6 +480,12 @@ struct LibraryScreen: View {
         if let notebook { createNote(in: notebook.url) }
         else if store.notebooks.isEmpty { showNewNotebook() }
         else { showingDestinationSheet = true }
+    }
+
+    private func selectNotebook(_ id: String) {
+        notebookID = id
+        query = ""
+        selectNote((notebook?.notes ?? store.notes).first?.id)
     }
 
     private func selectNote(_ id: String?) {

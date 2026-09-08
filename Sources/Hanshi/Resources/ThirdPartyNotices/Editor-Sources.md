@@ -27,10 +27,12 @@ License: MIT, reproduced in `STTextView-Plugin-TreeSitter-LICENSE`.
 
 `Sources/EditorSyntax/` contains the parser-only files from `Sources/STPluginTreeSitterCore/` and the language registry from `Sources/TreeSitterResource/TreeSitterLanguage.swift`. Parser point conversion uses a shared UTF-16 line index. The registry's query-bundle accessors were removed; Hanshi loads queries from its own resource bundle. The AppKit/UIKit plugin adapters, STPlugin interfaces, and STTextView are not included.
 
-`Resources/Syntax/` contains the `.scm` files from `Sources/TreeSitter*Queries/` at the same revision. Markdown captures are extended for Hanshi's Markdown theme roles and malformed SCSS predicate markers are corrected; modified query files carry an explicit comment. Query sources include nvim-treesitter; its Apache 2.0 license is reproduced in `Editor-Grammars.md`.
+`Resources/Syntax/` contains the selected languages' `.scm` files from `Sources/TreeSitter*Queries/` at the same revision. Markdown captures are extended for Hanshi's Markdown theme roles; modified query files carry an explicit comment. Query sources include nvim-treesitter; its Apache 2.0 license is reproduced in `Editor-Grammars.md`.
 
 ## Grammars
 
 Generated grammar libraries come directly from the MIT-licensed Swift package https://github.com/simonbs/TreeSitterLanguages at revision `15cf3a9ec3ab95e0d058b7df9f35619123c9e02d`. Hanshi links only its C/C++ parser products. Runestone is a resolved package dependency, but no Runestone product or editor is linked.
+
+The linked set is Markdown and Markdown Inline, Bash, CSS, HTML, JavaScript, JSON, Python, Swift and TypeScript, plus YAML for Markdown metadata and JSDoc/Regex for JavaScript injections (13 grammars). Other grammar products and query resources are excluded to reduce the application size. Unsupported fence languages retain the Markdown literal color; preview language support is unchanged.
 
 The package's license is reproduced in `TreeSitterLanguages-LICENSE`; grammar and query upstream notices are in `Editor-Grammars.md`. SwiftTreeSitter and the tree-sitter runtime retain their separate notices.

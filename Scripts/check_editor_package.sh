@@ -24,6 +24,10 @@ import SwiftTreeSitter
     @MainActor static func main() throws {
         let bundle = EditorResources.bundle
         let resources = bundle.resourceURL!
+        let directories = try FileManager.default.contentsOfDirectory(at: resources.appendingPathComponent("Syntax"), includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
+        precondition(Set(directories.map(\.lastPathComponent)) == Set(TreeSitterLanguage.allCases.map {
+            $0.name.replacingOccurrences(of: "_", with: "")
+        }), "Packaged queries must match the linked languages")
         func configuration(_ language: TreeSitterLanguage) -> LanguageConfiguration? {
             let directory = resources.appendingPathComponent("Syntax")
                 .appendingPathComponent(language.name.replacingOccurrences(of: "_", with: ""))
