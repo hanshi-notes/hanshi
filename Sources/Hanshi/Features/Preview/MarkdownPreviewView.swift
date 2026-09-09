@@ -147,6 +147,7 @@ import MarkdownEngine
         let oldComposition = composition
         let resources = EnginePreviewResources(recipe: recipe)
         var configuration = snapshot.theme.engineConfiguration
+        configuration.lists.autoClosePairsEnabled = snapshot.settings.autoClosePairs
         configuration.showsMarkdownMarkersWhileEditing = snapshot.settings.showsMarkdownMarkers
         configuration.services = MarkdownEditorServices(images: resources, syntaxHighlighter: resources, latex: resources)
         if appliedSnapshot?.documentID == snapshot.documentID, engine.sourceText != snapshot.text {
@@ -263,6 +264,7 @@ import MarkdownEngine
 }
 
 struct MarkdownPreviewView: NSViewRepresentable {
+    @AppStorage(PreviewSettings.autoClosePairsKey) private var autoClosePairs = true
     @AppStorage(PreviewSettings.allowsEditingKey) private var allowsEditing = true
     @AppStorage(PreviewSettings.showsMarkdownMarkersKey) private var showsMarkdownMarkers = false
     @AppStorage(PreviewSettings.bodySizeKey) private var bodySize = PreviewTheme.defaultBodySize
@@ -292,7 +294,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
         }
         var snapshot = snapshot
         snapshot.scale = Double(container.window?.backingScaleFactor ?? 2)
-        snapshot.settings = PreviewSettings(allowsEditing: allowsEditing, showsMarkdownMarkers: showsMarkdownMarkers)
+        snapshot.settings = PreviewSettings(autoClosePairs: autoClosePairs, allowsEditing: allowsEditing, showsMarkdownMarkers: showsMarkdownMarkers)
         snapshot.theme = PreviewTheme(bodySize: bodySize, margin: margin, verticalMargin: verticalMargin,
                                       fontName: fontName, fontFamily: fontFamily, lineHeight: lineHeight)
         session.show(snapshot, document: document)

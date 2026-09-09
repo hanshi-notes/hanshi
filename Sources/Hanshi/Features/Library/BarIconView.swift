@@ -33,6 +33,7 @@ struct BarButton: View {
             BarIconView(icon)
                 .foregroundStyle(active ? .orange : BarMetrics.iconColor)
                 .frame(width: BarMetrics.buttonWidth, height: BarMetrics.controlHeight)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)

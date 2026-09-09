@@ -87,6 +87,7 @@ struct GeneralSettingsView: View {
 }
 
 struct TextEditingSettingsView: View {
+    @AppStorage(PreviewSettings.autoClosePairsKey) private var autoClosePairs = true
     @AppStorage(PreviewSettings.allowsEditingKey) private var allowsPreviewEditing = true
     @AppStorage(PreviewSettings.showsMarkdownMarkersKey) private var showsPreviewMarkers = false
     @AppStorage(EditorFont.gutterKey) private var showsGutter = true
@@ -156,8 +157,12 @@ struct TextEditingSettingsView: View {
                         Text("spaces").foregroundStyle(.secondary)
                     }
                 }
-                Toggle("Show gutter", isOn: $showsGutter)
+                Toggle("Show line numbers", isOn: $showsGutter)
                     .toggleStyle(.switch)
+                Toggle("Automatically close brackets", isOn: $autoClosePairs)
+                    .toggleStyle(.switch)
+                    .accessibilityIdentifier(PreviewSettings.autoClosePairsKey)
+                    .help("Automatically closes (), [] and {} while editing preview.")
                 Toggle("Show invisible characters", isOn: $showsInvisibles)
                     .toggleStyle(.switch)
                     .help("Shows tabs, spaces and line breaks.")

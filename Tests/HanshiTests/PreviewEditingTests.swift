@@ -148,11 +148,20 @@ extension AppKitWindowTests {
         for control in switches(in: host) {
             let before = defaults.dictionaryRepresentation()
             control.performClick(nil)
-            for key in [PreviewSettings.allowsEditingKey, PreviewSettings.showsMarkdownMarkersKey] {
+            for key in [PreviewSettings.allowsEditingKey, PreviewSettings.showsMarkdownMarkersKey,
+                        EditorFont.gutterKey, PreviewSettings.autoClosePairsKey] {
                 if (before[key] as? Bool) != (defaults.object(forKey: key) as? Bool) { controls[key] = control }
             }
             control.performClick(nil)
         }
+        let gutter = try #require(controls[EditorFont.gutterKey])
+        #expect(gutter.state == .on)
+        gutter.performClick(nil)
+        #expect(defaults.object(forKey: EditorFont.gutterKey) as? Bool == false)
+        let pairs = try #require(controls[PreviewSettings.autoClosePairsKey])
+        #expect(pairs.state == .on)
+        pairs.performClick(nil)
+        #expect(defaults.object(forKey: PreviewSettings.autoClosePairsKey) as? Bool == false)
         let editing = try #require(controls[PreviewSettings.allowsEditingKey])
         let markers = try #require(controls[PreviewSettings.showsMarkdownMarkersKey])
         #expect(editing.state == .on)
