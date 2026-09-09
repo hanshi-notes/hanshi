@@ -22,10 +22,16 @@ struct LibraryScreen: View {
     @State private var trashingNotebook: Notebook?
     @FocusState private var searchFocused: Bool
 
+    private let defaults: UserDefaults
+
     init(mode: ContentMode? = nil, noteID: String? = nil, defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         _notebookID = AppStorage(wrappedValue: "all", Notebook.selectionKey, store: defaults)
         _mode = State(initialValue: mode ?? defaults.string(forKey: ContentMode.startupKey).flatMap(ContentMode.init(rawValue:)) ?? .source)
-        _noteID = State(initialValue: noteID)
+        // Reopen on the note the reader left, alongside the notebook. The catalog arrives
+        // later, so this id names a note that does not exist yet; the guard below keeps it
+        // alive until the first real load can confirm or drop it.
+        _noteID = State(initialValue: noteID ?? defaults.string(forKey: Note.selectionKey))
     }
 
     private var notebook: Notebook? { store.notebooks.first { $0.id == notebookID } }
@@ -92,8 +98,18 @@ struct LibraryScreen: View {
             if notebookID != "all", !store.notebooks.contains(where: { $0.id == notebookID }) { notebookID = "all" }
         }
         .onChange(of: store.notes.map(\.id)) { _, ids in
-            if let noteID, !ids.contains(noteID), store.documents[noteID] == nil { self.noteID = nil }
+            // An empty catalog before the first load is not a deleted note, and dropping the
+            // restored selection there would defeat reopening where the reader left off.
+            guard store.hasLoaded else { return }
+            guard let noteID else { return }
+            if !ids.contains(noteID), store.documents[noteID] == nil { self.noteID = nil; return }
+            // A restored selection names a note that did not exist when the screen mounted,
+            // so `.task(id: noteID)` already ran and found nothing. Open it now that it does.
+            if ids.contains(noteID), store.documents[noteID] == nil {
+                Task { await openSelectedNote() }
+            }
         }
+        .onChange(of: noteID, initial: true) { _, id in rememberSelectedNote(id) }
         .sheet(isPresented: $showingNotebookSheet) { notebookNameSheet(nil) }
         .sheet(item: $renamingNotebook) { notebook in notebookNameSheet(notebook) }
         .sheet(isPresented: $showingDestinationSheet) { destinationSheet }
@@ -498,6 +514,12 @@ struct LibraryScreen: View {
         searchFocused = false
         noteID = id
         if id != nil { focusSelectedNote() }
+    }
+
+    /// The reader's place in the library, so the next launch opens where they left off.
+    private func rememberSelectedNote(_ id: String?) {
+        if let id { defaults.set(id, forKey: Note.selectionKey) }
+        else { defaults.removeObject(forKey: Note.selectionKey) }
     }
 
     private func openSelectedNote() async {

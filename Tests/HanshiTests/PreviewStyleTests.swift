@@ -18,7 +18,12 @@ import Testing
     #expect(try paragraph("Inline").textBlocks.isEmpty)
     let bodyFont = try #require(result.text.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
     #expect(bodyFont.pointSize == 17)
-    #expect(try paragraph("Body").lineHeightMultiple > 1)
+    // Leading lives in lineSpacing, not lineHeightMultiple: a multiple grows the line
+    // fragment and `.backgroundColor` fills all of it, so inline code would sit in a slab.
+    // The engine restyles this text when the preview is editable, so `EnginePreviewResources`
+    // carries the matching `paragraph.lineHeightExtraSpacing`; keep the two in step.
+    #expect(try paragraph("Body").lineSpacing >= 4)
+    #expect(try paragraph("Body").lineHeightMultiple == 0)
 }
 
 @Test @MainActor func previewTaskSymbolsRemainAccessibleAndCopyAsMarkdown() async throws {
@@ -36,6 +41,10 @@ import Testing
     #expect(pasteboard.string(forType: .string) == "- [ ] Pending\n- [x] Done\n\nLiteral ☑ stays text.")
 }
 
+/// ⚠️ This calls `drawBackground` directly. The preview view runs on TextKit 2, whose
+/// layout never calls that TextKit 1 method, so the rounded corner does NOT reach the
+/// screen — the block renders square. Rounding it for real needs the engine's
+/// `MarkdownTextLayoutFragment.drawCodeBlockBackground`, which fills a plain rect.
 @Test @MainActor func previewCodeBackgroundHasRoundedCorners() throws {
     let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 100, pixelsHigh: 60,
         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
@@ -69,12 +78,15 @@ extension AppKitWindowTests {
         session.show(PreviewTestFixtures.snapshot(opening + "\n\n# Later heading\n"))
         await session.waitForRendering()
         let first = try #require(session.frame(at: 0))
-        #expect((10...18).contains(first.minY), "The preview should start with a small top margin, got \(first.minY) pt")
-        #expect(first.minX == 36, "Keep the existing horizontal reading margin")
+        // Read the margins from the theme rather than pinning numbers: these are taste
+        // values that move, and what matters is that the configured inset reaches the screen.
+        let inset = PreviewTheme().inset
+        #expect(abs(first.minY - inset.height) < 4, "The preview should start at the configured top margin, got \(first.minY) pt")
+        #expect(first.minX == inset.width, "The configured reading margin should reach the screen")
         let storage = try #require(session.textView.textStorage)
         let later = (storage.string as NSString).range(of: "Later heading")
         let style = try #require(storage.attribute(.paragraphStyle, at: later.location, effectiveRange: nil) as? NSParagraphStyle)
-        #expect(style.paragraphSpacingBefore == 20, "Headings within the document still need separation")
+        #expect(style.paragraphSpacingBefore >= 20, "Headings within the document still need separation")
     }
 
     @Test @MainActor func previewCodePaddingSurvivesWrappingAndResize() async throws {
@@ -119,5 +131,111 @@ extension AppKitWindowTests {
                 try #require(bitmap.representation(using: .png, properties: [:])).write(to: URL(filePath: path))
             }
         }
+    }
+}
+
+@Test @MainActor func previewThemeDerivesCodeSizeAndKeepsItsOtherSettingsIndependent() {
+    // The defaults must reproduce the hand-tuned values, or turning the settings on
+    // would silently restyle every existing note.
+    let standard = PreviewTheme()
+    #expect(standard.bodySize == 17)
+    #expect(standard.codeSize == 14)
+    #expect(standard.inset == NSSize(width: 38, height: 14))
+    #expect(standard.bodyLineSpacing == 5, "The default line height reproduces the old fixed leading")
+
+    #expect(PreviewTheme(bodySize: 24).codeSize == 20, "Code follows the body size")
+    // `Double(...)` throughout: `#expect` compares a CGFloat against a Double bound through
+    // the implicit bridge and reports 14.0 != 14.0.
+    #expect(Double(PreviewTheme(margin: 60).inset.height) == PreviewTheme.defaultVerticalMargin,
+            "The vertical margin is its own setting, not a fraction of the side one")
+    #expect(PreviewTheme(verticalMargin: 40).inset == NSSize(width: 38, height: 40))
+
+    // Leading scales with the multiple, and stays out of lineHeightMultiple so inline
+    // code backgrounds keep hugging the glyphs.
+    #expect(PreviewTheme(lineHeight: 1.0).bodyLineSpacing == 0)
+    #expect(PreviewTheme(lineHeight: 1.5).bodyLineSpacing > standard.bodyLineSpacing)
+
+    // A face this Mac no longer has must not leave the preview without a font, and a name
+    // that no longer resolves still finds its family. `NSFont(name: ".NewYork-Regular")`
+    // returns nil even though the panel can offer that face, which is why both are stored.
+    #expect(PreviewTheme(fontName: "NoSuchFontHere").bodyFont(size: 17) == .systemFont(ofSize: 17))
+    #expect(PreviewTheme(fontName: "Menlo-Regular").bodyFont(size: 17).fontName == "Menlo-Regular")
+    #expect(PreviewTheme(fontName: "NoSuchFontHere", fontFamily: "Georgia").bodyFont(size: 17).familyName == "Georgia")
+
+    // A stored default can be anything; it must never produce an unusable preview.
+    #expect(PreviewTheme(bodySize: 999, margin: 9_999).bodySize == PreviewTheme.bodySizeRange.upperBound)
+    #expect(Double(PreviewTheme(bodySize: 1, margin: 0).inset.width) == PreviewTheme.marginRange.lowerBound)
+    #expect(PreviewTheme(bodySize: .nan, margin: .nan, verticalMargin: .nan, lineHeight: .nan) == PreviewTheme())
+}
+
+@Test @MainActor func previewAppliesTheConfiguredSizeAndMargin() async throws {
+    let session = MarkdownPreviewSession(debounce: .zero)
+    defer { session.hide() }
+    var snapshot = PreviewTestFixtures.snapshot("# Heading\n\nBody text.\n")
+    snapshot.theme = PreviewTheme(bodySize: 22, margin: 60, verticalMargin: 30,
+                                  fontName: "Menlo-Regular", lineHeight: 1.8)
+    session.show(snapshot)
+    await session.waitForRendering()
+    #expect(session.textView.textContainerInset.width == 60)
+    #expect(session.textView.textContainerInset.height == 30)
+    let storage = try #require(session.textView.textStorage)
+    let body = (storage.string as NSString).range(of: "Body text")
+    let font = try #require(storage.attribute(.font, at: body.location, effectiveRange: nil) as? NSFont)
+    #expect(font.pointSize == 22)
+    #expect(font.familyName == "Menlo", "The chosen reading face reaches the screen, got \(font.familyName ?? "?")")
+    // The engine restyles the text and expresses leading as a minimum line height. Compare
+    // against the same render at the default multiple rather than against font metrics.
+    func lineBox() throws -> CGFloat {
+        let style = try #require(storage.attribute(.paragraphStyle, at: body.location, effectiveRange: nil) as? NSParagraphStyle)
+        return style.minimumLineHeight
+    }
+    let loose = try lineBox()
+    snapshot.theme = PreviewTheme(bodySize: 22, margin: 60, verticalMargin: 30,
+                                  fontName: "Menlo-Regular", lineHeight: PreviewTheme.defaultLineHeight)
+    session.show(snapshot)
+    await session.waitForRendering()
+    #expect(loose > (try lineBox()), "A 1.8× line height gives a taller line box than the default")
+}
+
+extension AppKitWindowTests {
+    /// ⌘N creates a note holding just the title template. Whichever surface takes focus
+    /// must leave the caret after the title, ready to type over it.
+    @Test @MainActor func newNoteOpensWithTheCaretAfterItsTitle() async throws {
+        let document = PreviewTestFixtures.document(NoteTitle.template)
+        let sourceCaret = document.editor.textView.selectedRange()
+        #expect(sourceCaret == NSRange(location: NoteTitle.template.utf16.count - 1, length: 0),
+                "The source editor puts the caret at the end of the title line")
+
+        let session = MarkdownPreviewSession(debounce: .zero)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = session.scrollView
+        window.makeKeyAndOrderFront(nil)
+        defer { session.hide(); window.contentView = nil; window.close() }
+        window.layoutIfNeeded()
+
+        // `isCurrent` drops a render whose document id, text and url do not all match, so
+        // the snapshot has to describe this very document.
+        var snapshot = PreviewSnapshot(library: UUID(), documentID: document.id, text: document.text,
+                                       url: document.url, root: document.url.deletingLastPathComponent())
+        snapshot.settings = PreviewSettings(allowsEditing: true, showsMarkdownMarkers: false)
+        session.focusDocumentID = snapshot.documentID
+        session.show(snapshot, document: document)
+        await session.waitForRendering()
+        session.focusIfNeeded()
+        await Task.yield()
+
+        // The editable preview keeps the source in storage and only shrinks the `# ` out of
+        // sight, and it drops the trailing break. Assert on the line it actually holds so a
+        // change to either of those shows up here instead of passing on an empty string.
+        let rendered = session.textView.string as NSString
+        let firstBreak = rendered.range(of: "\n").location
+        let titleEnd = firstBreak == NSNotFound ? rendered.length : firstBreak
+        let templateFirstLine = NoteTitle.template.split(separator: "\n").first.map(String.init) ?? ""
+        #expect(rendered.substring(to: titleEnd) == templateFirstLine,
+                "The preview holds the template's first line, got \(rendered)")
+        #expect(session.textView.selectedRange() == NSRange(location: titleEnd, length: 0),
+                "The preview puts the caret at the end of the rendered title, got \(session.textView.selectedRange())")
     }
 }

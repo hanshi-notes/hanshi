@@ -285,3 +285,52 @@ extension AppKitWindowTests {
         try await eventually { matches(next, in: relaunched) }
     }
 }
+
+extension AppKitWindowTests {
+    /// The notebook already survived a relaunch; the note has to as well, or reopening the
+    /// app drops the reader back at "Select a note to start writing".
+    @Test @MainActor func selectedNoteSurvivesRelaunch() async throws {
+        let preferences = TestPreferences(); defer { preferences.remove() }
+        let fixture = try PreviewResourceFixture(); defer { fixture.remove() }
+        let files = LibraryFiles(root: fixture.root)
+        // Two notebooks so the sidebar rows land where `clickRow` expects them.
+        let alpha = try await files.createNotebook(named: "Alpha")
+        let writing = try await files.createNotebook(named: "Writing")
+        try Data("Alpha note".utf8).write(to: alpha.appendingPathComponent("A.md"))
+        try Data("# First\n".utf8).write(to: writing.appendingPathComponent("B.md"))
+        try Data("# Second\n".utf8).write(to: writing.appendingPathComponent("C.md"))
+        let store = NoteStore(root: fixture.root)
+        await store.refresh()
+        let notebook = try #require(store.notebooks.first { $0.name == "Writing" })
+
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 650),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        let host = NSHostingView(rootView: LibraryScreen(defaults: preferences.defaults).environment(store))
+        window.contentView = host; window.orderFront(nil); host.layoutSubtreeIfNeeded()
+        try clickRow(panel: 0, top: 150, in: host, window: window)
+        try await eventually { preferences.defaults.string(forKey: Notebook.selectionKey) == notebook.id }
+        host.layoutSubtreeIfNeeded()
+        try clickRow(panel: 1, top: 80, in: host, window: window)
+        // Which row the click lands on depends on list geometry; what matters is that
+        // whatever it selected is what comes back, so read the selection instead of guessing.
+        try await eventually { preferences.defaults.string(forKey: Note.selectionKey) != nil }
+        let selectedID = try #require(preferences.defaults.string(forKey: Note.selectionKey))
+        let target = try #require(store.notes.first { $0.id == selectedID })
+        window.contentView = nil
+
+        // Relaunch: a fresh store whose catalog is still empty when the screen mounts, which
+        // is where a naive restore loses the selection.
+        let reopenedStore = NoteStore(root: fixture.root)
+        let reopened = NSHostingView(rootView: LibraryScreen(defaults: preferences.defaults).environment(reopenedStore))
+        window.contentView = reopened; reopened.layoutSubtreeIfNeeded()
+        await Task.yield()
+        await reopenedStore.refresh()
+        try await eventually { reopenedStore.notes.count == 3 }
+        reopened.layoutSubtreeIfNeeded()
+        try await eventually { reopenedStore.documents[target.id] != nil }
+        #expect(preferences.defaults.string(forKey: Note.selectionKey) == target.id,
+                "The reopened screen keeps the remembered note selected")
+    }
+}

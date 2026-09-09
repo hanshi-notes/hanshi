@@ -57,8 +57,22 @@ extension PreviewTheme {
         var configuration = MarkdownEditorConfiguration.default
         configuration.textInsets = TextInsets(horizontal: inset.width, vertical: inset.height)
         configuration.overscroll = OverscrollPolicy(percent: 0, maxPoints: 0, minPoints: 0)
-        configuration.headings.topSpacingEm = configuration.headings.fontMultipliers.map { 20 / (bodySize * $0) }
+        // Two styling paths reach the same view: `MarkdownRenderer.composeText` builds the
+        // attributed string, and the engine restyles it whenever the preview is editable.
+        // Whatever these two disagree on, the engine wins on screen — so every value below
+        // mirrors the composed one.
+        configuration.headings.fontMultipliers = [2.0, 1.6, 1.3, 1.15, 1.0, 0.95]
+        configuration.headings.topSpacingEm = configuration.headings.fontMultipliers.map { 28 / (bodySize * $0) }
+        // The engine grows the line box itself (minimumLineHeight), so this also loosens code
+        // blocks and stretches inline-code backgrounds. It is the same leading the composed
+        // paragraph style uses, expressed in the unit the engine wants.
+        let leading = bodyLineSpacing
+        configuration.paragraph = ParagraphStyle(spacingFactor: 0.5, lineHeightExtraSpacing: leading)
+        configuration.lists.extraLineHeight = leading
+        configuration.blockquote = BlockquoteStyle(extraLineHeight: leading)
         configuration.codeBlock.fontSizeScale = codeSize / bodySize
+        configuration.codeBlock.paragraphSpacing = 5
+        configuration.codeBlock.cornerRadius = 8
         configuration.extensions = [StrikethroughExtension()]
         configuration.spellChecking = SpellCheckingPolicy(continuousSpellChecking: false, grammarChecking: false, automaticSpellingCorrection: false)
         return configuration

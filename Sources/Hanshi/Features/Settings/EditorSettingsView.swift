@@ -93,9 +93,49 @@ struct TextEditingSettingsView: View {
     @AppStorage(EditorFont.indentsWithTabsKey) private var indentsWithTabs = false
     @AppStorage(EditorFont.tabWidthKey) private var tabWidth = EditorFont.defaultTabWidth
     @AppStorage(EditorFont.invisiblesKey) private var showsInvisibles = false
+    @AppStorage(PreviewSettings.bodySizeKey) private var previewBodySize = PreviewTheme.defaultBodySize
+    @AppStorage(PreviewSettings.marginKey) private var previewMargin = PreviewTheme.defaultMargin
+    @AppStorage(PreviewSettings.verticalMarginKey) private var previewVerticalMargin = PreviewTheme.defaultVerticalMargin
+    @AppStorage(PreviewSettings.fontNameKey) private var previewFontName = ""
+    @AppStorage(PreviewSettings.fontFamilyKey) private var previewFontFamily = ""
+    @AppStorage(PreviewSettings.lineHeightKey) private var previewLineHeight = PreviewTheme.defaultLineHeight
 
     private var boundedTabWidth: Binding<Int> {
         Binding(get: { EditorFont.clampedTabWidth(tabWidth) }, set: { tabWidth = EditorFont.clampedTabWidth($0) })
+    }
+
+    private var boundedPreviewBodySize: Binding<Double> {
+        Binding(get: { PreviewTheme.clampedBodySize(previewBodySize) },
+                set: { previewBodySize = PreviewTheme.clampedBodySize($0) })
+    }
+
+    private var boundedPreviewMargin: Binding<Double> {
+        Binding(get: { PreviewTheme.clampedMargin(previewMargin) },
+                set: { previewMargin = PreviewTheme.clampedMargin($0) })
+    }
+
+    private var boundedPreviewVerticalMargin: Binding<Double> {
+        Binding(get: { PreviewTheme.clampedVerticalMargin(previewVerticalMargin) },
+                set: { previewVerticalMargin = PreviewTheme.clampedVerticalMargin($0) })
+    }
+
+    private var boundedPreviewLineHeight: Binding<Double> {
+        Binding(get: { PreviewTheme.clampedLineHeight(previewLineHeight) },
+                set: { previewLineHeight = PreviewTheme.clampedLineHeight($0) })
+    }
+
+    private var previewTheme: PreviewTheme {
+        PreviewTheme(bodySize: previewBodySize, fontName: previewFontName, fontFamily: previewFontFamily)
+    }
+
+    /// The font panel hands back a face and a size together, so both settings move with it.
+    private var previewFont: Binding<NSFont> {
+        Binding(get: { previewTheme.bodyFont(size: PreviewTheme.clampedBodySize(previewBodySize)) },
+                set: {
+                    previewFontName = $0.fontName
+                    previewFontFamily = $0.familyName ?? ""
+                    previewBodySize = PreviewTheme.clampedBodySize($0.pointSize)
+                })
     }
 
     var body: some View {
@@ -134,6 +174,76 @@ struct TextEditingSettingsView: View {
                     .accessibilityIdentifier(PreviewSettings.showsMarkdownMarkersKey)
                     .disabled(!allowsPreviewEditing)
                     .help("Reveals markers such as *, ** and ~~ around the text you are editing.")
+                LabeledContent("Font") {
+                    HStack(spacing: 6) {
+                        Text(previewFont.wrappedValue.displayName ?? previewFont.wrappedValue.fontName)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if !previewFontName.isEmpty || !previewFontFamily.isEmpty {
+                            Button("System") { previewFontName = ""; previewFontFamily = "" }
+                                .help("Go back to the system reading font.")
+                        }
+                        FontPicker(font: previewFont, label: "Select preview font")
+                            .fixedSize()
+                    }
+                }
+                .accessibilityIdentifier(PreviewSettings.fontNameKey)
+                LabeledContent("Line height") {
+                    HStack {
+                        TextField("Line height", value: boundedPreviewLineHeight,
+                                  format: .number.precision(.fractionLength(2)))
+                            .labelsHidden()
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 44)
+                        Text("×").foregroundStyle(.secondary)
+                        Stepper("Line height", value: boundedPreviewLineHeight,
+                                in: PreviewTheme.lineHeightRange, step: 0.05)
+                            .labelsHidden()
+                    }
+                }
+                .accessibilityIdentifier(PreviewSettings.lineHeightKey)
+                LabeledContent("Text size") {
+                    HStack {
+                        TextField("Text size", value: boundedPreviewBodySize, format: .number.grouping(.never))
+                            .labelsHidden()
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 44)
+                        Text("pt").foregroundStyle(.secondary)
+                        Stepper("Text size", value: boundedPreviewBodySize, in: PreviewTheme.bodySizeRange)
+                            .labelsHidden()
+                    }
+                }
+                .accessibilityIdentifier(PreviewSettings.bodySizeKey)
+                LabeledContent("Side margin") {
+                    HStack {
+                        TextField("Side margin", value: boundedPreviewMargin, format: .number.grouping(.never))
+                            .labelsHidden()
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 44)
+                        Text("pt").foregroundStyle(.secondary)
+                        Stepper("Side margin", value: boundedPreviewMargin, in: PreviewTheme.marginRange, step: 2)
+                            .labelsHidden()
+                    }
+                }
+                .accessibilityIdentifier(PreviewSettings.marginKey)
+                LabeledContent("Top and bottom margin") {
+                    HStack {
+                        TextField("Top and bottom margin", value: boundedPreviewVerticalMargin,
+                                  format: .number.grouping(.never))
+                            .labelsHidden()
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 44)
+                        Text("pt").foregroundStyle(.secondary)
+                        Stepper("Top and bottom margin", value: boundedPreviewVerticalMargin,
+                                in: PreviewTheme.verticalMarginRange, step: 2)
+                            .labelsHidden()
+                    }
+                }
+                .accessibilityIdentifier(PreviewSettings.verticalMarginKey)
+                Text("Code follows the text size, so the preview keeps its proportions.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

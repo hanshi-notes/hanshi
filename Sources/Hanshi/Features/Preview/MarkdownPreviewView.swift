@@ -165,7 +165,7 @@ import MarkdownEngine
                 })
         } else { binding = .constant(snapshot.text) }
         let wrapper = NativeTextViewWrapper(text: binding, configuration: configuration,
-            fontName: NSFont.systemFont(ofSize: snapshot.theme.bodySize).fontName,
+            fontName: snapshot.theme.bodyFont(size: snapshot.theme.bodySize).fontName,
             fontSize: snapshot.theme.bodySize, documentId: snapshot.documentID,
             isEditable: snapshot.settings.allowsEditing && document != nil)
         wrapper.updateAppKitView(scrollView, coordinator: engine)
@@ -215,8 +215,26 @@ import MarkdownEngine
         Task { @MainActor [weak self] in
             guard let self, self.focusDocumentID == focusDocumentID, appliedSnapshot?.documentID == focusDocumentID,
                   !isRendering, let window = textView.window else { return }
-            if window.makeFirstResponder(textView) { self.focusDocumentID = nil }
+            if window.makeFirstResponder(textView) {
+                self.focusDocumentID = nil
+                self.placeCaretAfterNewNoteTitle()
+            }
         }
+    }
+
+    /// A note still holding just the new-note template opens ready to type over its title,
+    /// the same as the source editor does. The caret goes at the end of the first line of
+    /// what the text view actually holds. That is the source text today, markers included
+    /// and merely shrunk out of sight, but reading the line back keeps this correct if the
+    /// preview ever stops carrying them.
+    private func placeCaretAfterNewNoteTitle() {
+        guard appliedSnapshot?.text == NoteTitle.template else { return }
+        let rendered = textView.string as NSString
+        let firstBreak = rendered.range(of: "\n")
+        textView.setSelectedRange(NSRange(
+            location: firstBreak.location == NSNotFound ? rendered.length : firstBreak.location,
+            length: 0
+        ))
     }
     func navigateHeading(_ heading: String) {
         guard let anchor = composition?.anchors.first(where: { $0.heading == heading }) else {
@@ -247,6 +265,12 @@ import MarkdownEngine
 struct MarkdownPreviewView: NSViewRepresentable {
     @AppStorage(PreviewSettings.allowsEditingKey) private var allowsEditing = true
     @AppStorage(PreviewSettings.showsMarkdownMarkersKey) private var showsMarkdownMarkers = false
+    @AppStorage(PreviewSettings.bodySizeKey) private var bodySize = PreviewTheme.defaultBodySize
+    @AppStorage(PreviewSettings.marginKey) private var margin = PreviewTheme.defaultMargin
+    @AppStorage(PreviewSettings.verticalMarginKey) private var verticalMargin = PreviewTheme.defaultVerticalMargin
+    @AppStorage(PreviewSettings.fontNameKey) private var fontName = ""
+    @AppStorage(PreviewSettings.fontFamilyKey) private var fontFamily = ""
+    @AppStorage(PreviewSettings.lineHeightKey) private var lineHeight = PreviewTheme.defaultLineHeight
     let session: MarkdownPreviewSession
     let snapshot: PreviewSnapshot
     let document: NoteDocument
@@ -269,6 +293,8 @@ struct MarkdownPreviewView: NSViewRepresentable {
         var snapshot = snapshot
         snapshot.scale = Double(container.window?.backingScaleFactor ?? 2)
         snapshot.settings = PreviewSettings(allowsEditing: allowsEditing, showsMarkdownMarkers: showsMarkdownMarkers)
+        snapshot.theme = PreviewTheme(bodySize: bodySize, margin: margin, verticalMargin: verticalMargin,
+                                      fontName: fontName, fontFamily: fontFamily, lineHeight: lineHeight)
         session.show(snapshot, document: document)
         if split, session.scrollSync?.editor !== document.editor {
             session.scrollSync?.disconnect()

@@ -3,13 +3,14 @@ import SwiftUI
 
 struct FontPicker: NSViewRepresentable {
     @Binding var font: NSFont
+    var label = "Select editor font"
 
     func makeCoordinator() -> Coordinator { Coordinator(font: $font) }
 
     func makeNSView(context: Context) -> NSButton {
         let button = NSButton(title: "Select…", target: context.coordinator, action: #selector(Coordinator.showPanel))
         button.bezelStyle = .rounded
-        button.setAccessibilityLabel("Select editor font")
+        button.setAccessibilityLabel(label)
         return button
     }
 
