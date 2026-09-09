@@ -4,6 +4,7 @@ struct LibraryScreen: View {
     @Environment(NoteStore.self) private var store
     @AppStorage(Notebook.selectionKey) private var notebookID = "all"
     @State private var noteID: String?
+    @State private var restoredPath: String?
     @State private var query = ""
     @State private var mode = ContentMode.source
     @State private var isZen = false
@@ -28,10 +29,11 @@ struct LibraryScreen: View {
         self.defaults = defaults
         _notebookID = AppStorage(wrappedValue: "all", Notebook.selectionKey, store: defaults)
         _mode = State(initialValue: mode ?? defaults.string(forKey: ContentMode.startupKey).flatMap(ContentMode.init(rawValue:)) ?? .source)
-        // Reopen on the note the reader left, alongside the notebook. The catalog arrives
-        // later, so this id names a note that does not exist yet; the guard below keeps it
-        // alive until the first real load can confirm or drop it.
-        _noteID = State(initialValue: noteID ?? defaults.string(forKey: Note.selectionKey))
+        _noteID = State(initialValue: noteID)
+        // Reopen on the note the reader left, alongside the notebook. Saving rewrites the file
+        // atomically, so a note's id changes with every save and only its path still names it
+        // at the next launch; the catalog arrives later, so the restore waits for it.
+        _restoredPath = State(initialValue: noteID == nil ? defaults.string(forKey: Note.selectionKey) : nil)
     }
 
     private var notebook: Notebook? { store.notebooks.first { $0.id == notebookID } }
@@ -97,19 +99,27 @@ struct LibraryScreen: View {
             guard store.hasLoaded else { return }
             if notebookID != "all", !store.notebooks.contains(where: { $0.id == notebookID }) { notebookID = "all" }
         }
-        .onChange(of: store.notes.map(\.id)) { _, ids in
+        .onChange(of: store.notes.map(\.id), initial: true) { _, ids in
             // An empty catalog before the first load is not a deleted note, and dropping the
             // restored selection there would defeat reopening where the reader left off.
             guard store.hasLoaded else { return }
-            guard let noteID else { return }
-            if !ids.contains(noteID), store.documents[noteID] == nil { self.noteID = nil; return }
+            var selection = noteID
+            if let restoredPath {
+                self.restoredPath = nil
+                selection = store.notes.first { $0.url.path == restoredPath }?.id
+                noteID = selection
+            }
+            guard let selection else { return }
+            if !ids.contains(selection), store.documents[selection] == nil { noteID = nil; return }
             // A restored selection names a note that did not exist when the screen mounted,
             // so `.task(id: noteID)` already ran and found nothing. Open it now that it does.
-            if ids.contains(noteID), store.documents[noteID] == nil {
+            if ids.contains(selection), store.documents[selection] == nil {
                 Task { await openSelectedNote() }
             }
         }
-        .onChange(of: noteID, initial: true) { _, id in rememberSelectedNote(id) }
+        .onChange(of: selectedNote?.url ?? document?.url, initial: true) { _, url in
+            rememberSelectedNote(url)
+        }
         .sheet(isPresented: $showingNotebookSheet) { notebookNameSheet(nil) }
         .sheet(item: $renamingNotebook) { notebook in notebookNameSheet(notebook) }
         .sheet(isPresented: $showingDestinationSheet) { destinationSheet }
@@ -516,10 +526,11 @@ struct LibraryScreen: View {
         if id != nil { focusSelectedNote() }
     }
 
-    /// The reader's place in the library, so the next launch opens where they left off.
-    private func rememberSelectedNote(_ id: String?) {
-        if let id { defaults.set(id, forKey: Note.selectionKey) }
-        else { defaults.removeObject(forKey: Note.selectionKey) }
+    /// The reader's place in the library, so the next launch opens where they left off. Renaming
+    /// a note moves its file, so this follows the path the selection has now.
+    private func rememberSelectedNote(_ url: URL?) {
+        if let url { defaults.set(url.path, forKey: Note.selectionKey) }
+        else if noteID == nil, restoredPath == nil { defaults.removeObject(forKey: Note.selectionKey) }
     }
 
     private func openSelectedNote() async {

@@ -316,8 +316,20 @@ extension AppKitWindowTests {
         // Which row the click lands on depends on list geometry; what matters is that
         // whatever it selected is what comes back, so read the selection instead of guessing.
         try await eventually { preferences.defaults.string(forKey: Note.selectionKey) != nil }
-        let selectedID = try #require(preferences.defaults.string(forKey: Note.selectionKey))
-        let target = try #require(store.notes.first { $0.id == selectedID })
+        let selectedPath = try #require(preferences.defaults.string(forKey: Note.selectionKey))
+        let target = try #require(store.notes.first { $0.url.path == selectedPath })
+
+        // Saving rewrites the file atomically, so its inode — and with it the id the catalog
+        // will report at the next launch — changes under the running selection.
+        try await eventually { store.documents[target.id] != nil }
+        let document = try #require(store.documents[target.id])
+        document.edit("# Edited\n")
+        #expect(await document.save())
+        #expect(preferences.defaults.string(forKey: Note.selectionKey) == selectedPath)
+        // Renaming moves the file, so the remembered place has to follow it.
+        #expect(await store.rename(target, to: "Renamed"))
+        let renamedPath = target.url.deletingLastPathComponent().appendingPathComponent("Renamed.md").path
+        try await eventually { preferences.defaults.string(forKey: Note.selectionKey) == renamedPath }
         window.contentView = nil
 
         // Relaunch: a fresh store whose catalog is still empty when the screen mounts, which
@@ -329,8 +341,10 @@ extension AppKitWindowTests {
         await reopenedStore.refresh()
         try await eventually { reopenedStore.notes.count == 3 }
         reopened.layoutSubtreeIfNeeded()
-        try await eventually { reopenedStore.documents[target.id] != nil }
-        #expect(preferences.defaults.string(forKey: Note.selectionKey) == target.id,
+        let restored = try #require(reopenedStore.notes.first { $0.url.path == renamedPath })
+        #expect(restored.id != target.id, "The save must have changed the id the catalog reports")
+        try await eventually { reopenedStore.documents[restored.id]?.text == "# Edited\n" }
+        #expect(preferences.defaults.string(forKey: Note.selectionKey) == renamedPath,
                 "The reopened screen keeps the remembered note selected")
     }
 }
