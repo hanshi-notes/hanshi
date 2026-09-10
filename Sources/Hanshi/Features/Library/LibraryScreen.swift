@@ -3,12 +3,14 @@ import SwiftUI
 struct LibraryScreen: View {
     @Environment(NoteStore.self) private var store
     @AppStorage(Notebook.selectionKey) private var notebookID = "all"
+    @AppStorage(SidebarTheme.key) private var sidebarTheme = SidebarTheme.standard
     @State private var noteID: String?
     @State private var restoredPath: String?
     @State private var query = ""
     @State private var mode = ContentMode.source
     @State private var isZen = false
     @State private var sidebarVisible = true
+    @State private var notebooksExpanded = true
     @State private var layoutPreviewFocus: Bool?
     @State private var showingNotebookSheet = false
     @State private var showingDestinationSheet = false
@@ -28,6 +30,7 @@ struct LibraryScreen: View {
     init(mode: ContentMode? = nil, noteID: String? = nil, defaults: UserDefaults = .standard) {
         self.defaults = defaults
         _notebookID = AppStorage(wrappedValue: "all", Notebook.selectionKey, store: defaults)
+        _sidebarTheme = AppStorage(wrappedValue: .standard, SidebarTheme.key, store: defaults)
         _mode = State(initialValue: mode ?? defaults.string(forKey: ContentMode.startupKey).flatMap(ContentMode.init(rawValue:)) ?? .source)
         _noteID = State(initialValue: noteID)
         // Reopen on the note the reader left, alongside the notebook. Saving rewrites the file
@@ -164,31 +167,33 @@ struct LibraryScreen: View {
                         sidebarRow("All Notes", icon: "doc.text.fill", count: store.notes.count,
                                    selected: notebookID == "all")
                     }
-                    Button { showNewNotebook() } label: {
-                        sidebarRow("Notebooks", icon: "list.bullet.rectangle.fill", count: store.notes.count)
+                    Button { notebooksExpanded.toggle() } label: {
+                        sidebarRow("Notebooks", icon: notebooksExpanded ? "chevron.down" : "chevron.right",
+                                   count: store.notes.count)
                     }
-                    .help("New Notebook (⌘⇧N)")
-                    .keyboardShortcut("n", modifiers: [.command, .shift])
-                    .disabled(store.isBusy)
+                    .help(notebooksExpanded ? "Collapse Notebooks" : "Expand Notebooks")
+                    .accessibilityValue(notebooksExpanded ? "Expanded" : "Collapsed")
 
-                    ForEach(store.notebooks) { notebook in
-                        Button { selectNotebook(notebook.id) } label: {
-                            sidebarRow(notebook.name, count: notebook.notes.count,
-                                       selected: notebookID == notebook.id)
-                        }
-                        .contextMenu {
-                            Button("New Notebook…", action: showNewNotebook)
-                                .disabled(store.isBusy)
-                            Button("Rename…") {
-                                notebookName = notebook.name
-                                renamingNotebook = notebook
+                    if notebooksExpanded {
+                        ForEach(store.notebooks) { notebook in
+                            Button { selectNotebook(notebook.id) } label: {
+                                sidebarRow(notebook.name, count: notebook.notes.count,
+                                           selected: notebookID == notebook.id)
                             }
-                            .disabled(store.isBusy)
-                            Button("Move to Trash", role: .destructive) { trashingNotebook = notebook }
+                            .contextMenu {
+                                Button("New Notebook…", action: showNewNotebook)
+                                    .disabled(store.isBusy)
+                                Button("Rename…") {
+                                    notebookName = notebook.name
+                                    renamingNotebook = notebook
+                                }
                                 .disabled(store.isBusy)
-                            Divider()
-                            Button("Show in Finder") {
-                                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: notebook.url.path)
+                                Button("Move to Trash", role: .destructive) { trashingNotebook = notebook }
+                                    .disabled(store.isBusy)
+                                Divider()
+                                Button("Show in Finder") {
+                                    NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: notebook.url.path)
+                                }
                             }
                         }
                     }
@@ -198,8 +203,8 @@ struct LibraryScreen: View {
                 .buttonStyle(.plain)
             }
         }
-        .background(Color(red: 0.12, green: 0.16, blue: 0.18))
-        .foregroundStyle(.white)
+        .background(sidebarTheme.background)
+        .foregroundStyle(sidebarTheme.foreground)
         .contextMenu {
             Button("New Notebook…") { showNewNotebook() }
                 .disabled(store.isBusy)
@@ -210,6 +215,10 @@ struct LibraryScreen: View {
                 .disabled(store.isBusy)
         }
         .background {
+            Button("New Notebook", action: showNewNotebook)
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .disabled(store.isBusy)
+                .hidden()
             Button("Refresh Library") { Task { await store.refresh() } }
                 .keyboardShortcut("r")
                 .disabled(store.isBusy)
@@ -236,7 +245,7 @@ struct LibraryScreen: View {
         .frame(height: 32)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .background(selected ? Color.white.opacity(0.08) : .clear)
+        .background(selected ? sidebarTheme.foreground.opacity(0.08) : .clear)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }

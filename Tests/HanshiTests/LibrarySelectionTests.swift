@@ -7,6 +7,53 @@ import Testing
 @Suite(.serialized) struct AppKitWindowTests {}
 
 extension AppKitWindowTests {
+    @Test @MainActor func notebookDisclosureHidesRowsAndPreservesTheOpenNote() async throws {
+        _ = NSApplication.shared
+        let fixture = try PreviewResourceFixture(); defer { fixture.remove() }
+        let files = LibraryFiles(root: fixture.root)
+        _ = try await files.createNotebook(named: "Empty")
+        let writing = try await files.createNotebook(named: "Writing")
+        try Data("# Draft\n".utf8).write(to: writing.appendingPathComponent("Draft.md"))
+        let store = NoteStore(root: fixture.root)
+        await store.refresh()
+        let notebook = try #require(store.notebooks.first { $0.name == "Writing" })
+        let note = try #require(store.notes.first)
+        let preferences = TestPreferences(); defer { preferences.remove() }
+        let host = NSHostingView(rootView: LibraryScreen(defaults: preferences.defaults).environment(store))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 650),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host; window.orderFront(nil); host.layoutSubtreeIfNeeded()
+        defer { window.contentView = nil; window.close() }
+        try clickRow(panel: 0, top: 150, in: host, window: window)
+        try await eventually { store.documents[note.id]?.editor.textView.window === window }
+        let document = try #require(store.documents[note.id])
+        document.edit("# Unsaved draft\n")
+
+        try clickRow(panel: 0, top: 86, in: host, window: window)
+        try await Task.sleep(for: .milliseconds(50))
+        host.layoutSubtreeIfNeeded()
+        try #require(window.sheets.isEmpty, "The disclosure must not open the New Notebook sheet")
+        #expect(preferences.defaults.string(forKey: Notebook.selectionKey) == notebook.id)
+        #expect(document.editor.textView.window === window)
+        #expect(document.text == "# Unsaved draft\n")
+
+        try clickRow(panel: 0, top: 54, in: host, window: window)
+        try await eventually { preferences.defaults.string(forKey: Notebook.selectionKey) == "all" }
+        try clickRow(panel: 0, top: 150, in: host, window: window)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(preferences.defaults.string(forKey: Notebook.selectionKey) == "all",
+                "Collapsed notebook rows must no longer be clickable")
+
+        try clickRow(panel: 0, top: 86, in: host, window: window)
+        try await Task.sleep(for: .milliseconds(50))
+        host.layoutSubtreeIfNeeded()
+        try clickRow(panel: 0, top: 150, in: host, window: window)
+        try await eventually { preferences.defaults.string(forKey: Notebook.selectionKey) == notebook.id }
+        #expect(document.text == "# Unsaved draft\n")
+        #expect(document.isModified)
+    }
+
     @Test(arguments: [false, true]) @MainActor
     func changingContentModeFocusesTheVisibleSurface(allowsEditing: Bool) async throws {
         _ = NSApplication.shared

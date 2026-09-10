@@ -277,6 +277,7 @@ struct NoteSettingsView: View {
 }
 
 struct EditorSettingsView: View {
+    @AppStorage(SidebarTheme.key) private var sidebarTheme = SidebarTheme.standard
     @AppStorage(EditorFont.familyKey) private var family = ""
     @AppStorage(EditorFont.sizeKey) private var size = EditorFont.defaultSize
     @AppStorage(EditorFont.nameKey) private var name = ""
@@ -299,6 +300,15 @@ struct EditorSettingsView: View {
 
     var body: some View {
         Form {
+            Section("Sidebar") {
+                Picker("Color", selection: $sidebarTheme) {
+                    ForEach(SidebarTheme.allCases) { option in
+                        Text(option.rawValue).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityLabel("Sidebar color")
+            }
             Section("Editor Font") {
                 LabeledContent("Font") {
                     HStack(spacing: 6) {
