@@ -68,6 +68,7 @@ struct SettingsView: View {
 
 struct GeneralSettingsView: View {
     @AppStorage(ContentMode.startupKey) private var startupMode = ContentMode.source
+    @AppStorage(Note.hidesExtensionKey) private var hidesExtension = true
 
     var body: some View {
         Form {
@@ -79,6 +80,10 @@ struct GeneralSettingsView: View {
                 }
                 .pickerStyle(.segmented)
                 .help("Applies the next time the app opens.")
+            }
+            Section("Note List") {
+                Toggle("Hide file extensions", isOn: $hidesExtension)
+                    .toggleStyle(.checkbox)
             }
         }
         .formStyle(.grouped)

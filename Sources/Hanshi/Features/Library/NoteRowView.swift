@@ -1,12 +1,15 @@
 import SwiftUI
 
 struct NoteRowView: View {
+    @AppStorage(Note.hidesExtensionKey) private var hidesExtension = true
     let note: Note
     let selected: Bool
 
+    private var displayName: String { hidesExtension ? note.name : note.url.lastPathComponent }
+
     var body: some View {
         HStack(spacing: 5) {
-            Text(note.name)
+            Text(displayName)
                 .font(.system(size: 13.5))
                 .lineLimit(1)
             Spacer(minLength: 4)
@@ -16,7 +19,7 @@ struct NoteRowView: View {
         .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
         .background(selected ? Color(white: 0.92) : .white)
         .contentShape(Rectangle())
-        .accessibilityLabel("\(note.name), \(note.notebookName)")
+        .accessibilityLabel("\(displayName), \(note.notebookName)")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

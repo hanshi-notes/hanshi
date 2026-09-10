@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import Hanshi
 
@@ -126,6 +127,37 @@ extension AppKitWindowTests {
         let later = (storage.string as NSString).range(of: "Later heading")
         let style = try #require(storage.attribute(.paragraphStyle, at: later.location, effectiveRange: nil) as? NSParagraphStyle)
         #expect(style.paragraphSpacingBefore >= 20, "Headings within the document still need separation")
+    }
+
+    @Test(arguments: [false, true], [NSScroller.Style.overlay, .legacy]) @MainActor
+    func shortPreviewDoesNotGainAScrollbarWhenShrinkingTheWindow(editable: Bool, scrollerStyle: NSScroller.Style) async throws {
+        _ = NSApplication.shared
+        let source = "# Note\n\nTwo short lines.\n"
+        let document = PreviewTestFixtures.document(source)
+        let session = MarkdownPreviewSession(debounce: .zero)
+        let preferences = TestPreferences(); defer { preferences.remove() }
+        preferences.defaults.set(editable, forKey: PreviewSettings.allowsEditingKey)
+        let host = NSHostingView(rootView: NoteEditorContentView(document: document,
+            files: LibraryFiles(root: document.url.deletingLastPathComponent()), mode: .preview, preview: session)
+            .defaultAppStorage(preferences.defaults))
+        session.scrollView.scrollerStyle = scrollerStyle
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 760),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host; window.orderFront(nil); host.layoutSubtreeIfNeeded()
+        defer { session.hide(); window.contentView = nil; window.close() }
+        await session.waitForRendering()
+        let content = try #require(session.scrollView.documentView)
+        for size in [NSSize(width: 700, height: 760), NSSize(width: 700, height: 540), NSSize(width: 700, height: 539),
+                     NSSize(width: 450, height: 300), NSSize(width: 700, height: 760)] {
+            window.setContentSize(size)
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(50))
+            #expect(abs(session.scrollView.contentView.bounds.height - size.height) <= 1)
+            #expect(abs(content.frame.height - session.scrollView.contentView.bounds.height) <= 0.5)
+            #expect(session.scrollView.verticalScroller?.isHidden == true)
+        }
+        #expect(document.text == source)
     }
 
     @Test @MainActor func previewCodePaddingSurvivesWrappingAndResize() async throws {

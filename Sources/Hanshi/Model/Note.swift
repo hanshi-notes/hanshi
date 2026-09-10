@@ -2,6 +2,7 @@ import Foundation
 
 nonisolated struct Note: Identifiable, Sendable {
     static let selectionKey = "selectedNoteID"
+    static let hidesExtensionKey = "noteListHidesExtension"
     let id: String
     let url: URL
     var name: String { url.deletingPathExtension().lastPathComponent }
