@@ -84,6 +84,7 @@ struct LibraryScreen: View {
     var body: some View {
         libraryLayout
         .task(id: noteID) { await openSelectedNote() }
+        .onChange(of: mode) { focusSelectedNote() }
         .task(id: [isZen, sidebarVisible]) {
             guard let layoutPreviewFocus, let document else { return }
             self.layoutPreviewFocus = nil

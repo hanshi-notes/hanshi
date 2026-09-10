@@ -67,7 +67,9 @@ extension PreviewTheme {
         // blocks and stretches inline-code backgrounds. It is the same leading the composed
         // paragraph style uses, expressed in the unit the engine wants.
         let leading = bodyLineSpacing
-        configuration.paragraph = ParagraphStyle(spacingFactor: 0.5, lineHeightExtraSpacing: leading)
+        // Source newlines already separate paragraphs; extra paragraph spacing would also
+        // be added after every ordinary Return, on top of the configured line height.
+        configuration.paragraph = ParagraphStyle(spacingFactor: 0, lineHeightExtraSpacing: leading)
         configuration.lists.extraLineHeight = leading
         configuration.blockquote = BlockquoteStyle(extraLineHeight: leading)
         configuration.codeBlock.fontSizeScale = codeSize / bodySize

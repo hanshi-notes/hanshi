@@ -66,6 +66,45 @@ import Testing
 }
 
 extension AppKitWindowTests {
+    @Test(arguments: [1.0, 1.5, 2.0], ["\n", "\n\n"]) @MainActor
+    func previewTypedLinesMatchEditorLineHeight(lineHeight: Double, separator: String) async throws {
+        let document = PreviewTestFixtures.document("Line 1")
+        let session = MarkdownPreviewSession(debounce: .zero)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 600),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = session.scrollView
+        defer { session.hide(); window.contentView = nil; window.close() }
+        var snapshot = PreviewSnapshot(library: UUID(), documentID: document.id, text: document.text,
+            url: document.url, root: document.url.deletingLastPathComponent())
+        snapshot.theme = PreviewTheme(bodySize: 17, fontName: "Menlo-Regular", lineHeight: lineHeight)
+        snapshot.settings = PreviewSettings(allowsEditing: true)
+        session.show(snapshot, document: document)
+        await session.waitForRendering()
+        window.makeFirstResponder(session.textView)
+        session.textView.setSelectedRange(NSRange(location: document.text.utf16.count, length: 0))
+        for line in 2...6 {
+            for _ in separator { session.textView.insertNewline(nil) }
+            session.textView.insertText("Line \(line)", replacementRange: session.textView.selectedRange())
+            await Task.yield()
+            await session.waitForRendering()
+        }
+        let expected = (1...6).map { "Line \($0)" }.joined(separator: separator)
+        #expect(document.text == expected)
+        let last = (expected as NSString).range(of: "Line 6").location
+        let previewHeight = try #require(session.frame(at: last)).minY - #require(session.frame(at: 0)).minY
+        let editor = document.editor
+        editor.setFont(name: "Menlo-Regular", size: 17)
+        editor.setTypography(lineHeight: lineHeight, ligatures: true)
+        window.contentView = editor.scrollView
+        window.layoutIfNeeded()
+        let editorHeight = try #require(editor.textView.textFrame(at: last)).minY
+            - #require(editor.textView.textFrame(at: 0)).minY
+        let intervals = 5 * separator.count
+        #expect(abs(previewHeight - editorHeight) / Double(intervals) <= 1,
+                "Matching font and line-height settings must not add paragraph gaps after each Return: preview \(previewHeight), editor \(editorHeight)")
+    }
+
     @Test(arguments: ["# First **heading**", "First paragraph", "\n\n# First **heading**"])
     @MainActor func previewStartsNearTheTopWithoutCrowdingLaterHeadings(_ opening: String) async throws {
         let session = MarkdownPreviewSession(debounce: .zero)

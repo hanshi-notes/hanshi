@@ -7,6 +7,44 @@ import Testing
 @Suite(.serialized) struct AppKitWindowTests {}
 
 extension AppKitWindowTests {
+    @Test(arguments: [false, true]) @MainActor
+    func changingContentModeFocusesTheVisibleSurface(allowsEditing: Bool) async throws {
+        _ = NSApplication.shared
+        let fixture = try PreviewResourceFixture(); defer { fixture.remove() }
+        let folder = try await LibraryFiles(root: fixture.root).createNotebook(named: "Notes")
+        try Data("# Focus\n\nBody text.\n".utf8).write(to: folder.appendingPathComponent("Focus.md"))
+        let store = NoteStore(root: fixture.root)
+        await store.refresh()
+        let note = try #require(store.notes.first)
+        let preferences = TestPreferences(); defer { preferences.remove() }
+        preferences.defaults.set(allowsEditing, forKey: PreviewSettings.allowsEditingKey)
+        let control = ContentModeTestControl()
+        let host = NSHostingView(rootView: LibraryScreen(mode: .source, noteID: note.id, defaults: preferences.defaults)
+            .environment(store).defaultAppStorage(preferences.defaults)
+            .overlay { ContentModeBindingProbe(control: control).frame(width: 0, height: 0) })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 650),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host; window.makeKeyAndOrderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        try await eventually { control.mode != nil && store.documents[note.id]?.editor.textView.window === window }
+        let document = try #require(store.documents[note.id])
+        try await eventually { window.firstResponder === document.editor.textView }
+        for mode in [Hanshi.ContentMode.preview, .source, .preview, .split, .preview, .source, .preview] {
+            control.mode?.wrappedValue = mode
+            try await eventually {
+                if mode == .preview {
+                    return previewView(in: host) != nil && window.firstResponder === previewView(in: host)
+                        && document.editor.textView.window == nil
+                }
+                return window.firstResponder === document.editor.textView
+                    && (previewView(in: host) != nil) == (mode == .split)
+            }
+        }
+        #expect(previewView(in: host)?.isEditable == allowsEditing)
+        #expect(document.text == "# Focus\n\nBody text.\n")
+    }
+
     @Test(arguments: Hanshi.ContentMode.allCases) @MainActor
     func librarySelectionOpensNotesAndKeepsTheChosenMode(mode: Hanshi.ContentMode) async throws {
         _ = NSApplication.shared
@@ -72,6 +110,18 @@ extension AppKitWindowTests {
         try clickRow(panel: 0, top: 150, in: host, window: window)
         try await eventually { isFocused(first) }
         #expect(!store.hasUnsavedChanges)
+    }
+}
+
+@MainActor private final class ContentModeTestControl {
+    var mode: Binding<Hanshi.ContentMode>?
+}
+
+private struct ContentModeBindingProbe: View {
+    @FocusedValue(\.contentMode) private var mode
+    let control: ContentModeTestControl
+    var body: some View {
+        Color.clear.onChange(of: mode?.wrappedValue, initial: true) { control.mode = mode }
     }
 }
 

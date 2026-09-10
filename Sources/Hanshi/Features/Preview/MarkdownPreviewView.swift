@@ -281,6 +281,8 @@ struct MarkdownPreviewView: NSViewRepresentable {
     func makeNSView(context: Context) -> PreviewContainerView { PreviewContainerView() }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: PreviewContainerView, context: Context) -> CGSize? { proposal.replacingUnspecifiedDimensions() }
     func updateNSView(_ container: PreviewContainerView, context: Context) {
+        // An outgoing representable can update after its replacement has taken the scroll view.
+        guard container.session !== session || session.scrollView.superview === container else { return }
         container.session = session
         let scroll = session.scrollView
         if scroll.superview !== container {
