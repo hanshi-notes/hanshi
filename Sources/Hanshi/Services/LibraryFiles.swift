@@ -97,6 +97,13 @@ nonisolated struct LibraryFiles: Sendable {
         return try moveItem(at: url, to: destination, validate: validateNotebook)
     }
 
+    func moveNote(at url: URL, to notebook: URL) throws -> URL {
+        try moveItem(at: url, to: notebook.appendingPathComponent(url.lastPathComponent)) { source in
+            try validateNotebook(notebook)
+            try validateNote(source)
+        }
+    }
+
     private func moveItem(at url: URL, to destination: URL, validate: (URL) throws -> Void) throws -> URL {
         var coordinationError: NSError?
         var result: Result<URL, any Error> = .failure(LibraryError.invalidNote)

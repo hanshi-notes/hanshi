@@ -135,6 +135,28 @@ final class NoteStore {
         }
     }
 
+    @discardableResult func move(noteID: String, to notebookID: String) async -> Bool {
+        guard !isBusy, let note = notes.first(where: { $0.id == noteID }),
+              let notebook = notebooks.first(where: { $0.id == notebookID }) else { return false }
+        isBusy = true
+        defer { isBusy = false }
+        let document = documents[noteID]
+        if document?.isSaving == true, await document?.save() != true {
+            errorMessage = document?.errorMessage
+            return false
+        }
+        do {
+            let url = try files.moveNote(at: document?.url ?? note.url, to: notebook.url)
+            document?.url = url
+            isBusy = false
+            await refresh()
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
     /// Keeps the file named after the note's heading, until someone renames the file by hand.
     private func renameToMatchHeading(_ document: NoteDocument, previousText: String) async {
         guard usesTitleTemplate, !isBusy,

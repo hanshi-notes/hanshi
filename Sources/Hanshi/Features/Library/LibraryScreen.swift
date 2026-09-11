@@ -23,6 +23,7 @@ struct LibraryScreen: View {
     @State private var trashingNote: Note?
     @State private var renamingNotebook: Notebook?
     @State private var trashingNotebook: Notebook?
+    @State private var dropNotebookID: String?
     @FocusState private var searchFocused: Bool
 
     private let defaults: UserDefaults
@@ -178,7 +179,10 @@ struct LibraryScreen: View {
                         ForEach(store.notebooks) { notebook in
                             Button { selectNotebook(notebook.id) } label: {
                                 sidebarRow(notebook.name, count: notebook.notes.count,
-                                           selected: notebookID == notebook.id)
+                                           selected: notebookID == notebook.id || dropNotebookID == notebook.id)
+                                    .onDrop(of: [NoteDrag.type], delegate: NotebookDropDelegate(
+                                        store: store, notebookID: notebook.id, targetedNotebookID: $dropNotebookID,
+                                        move: { moveNote($0, to: notebook) }))
                             }
                             .contextMenu {
                                 Button("New Notebook…", action: showNewNotebook)
@@ -300,11 +304,18 @@ struct LibraryScreen: View {
                         ForEach(visibleNotes) { note in
                             Button { selectNote(note.id) } label: {
                                 NoteRowView(note: note, selected: noteID == note.id)
+                                    .onDrag { NoteDrag.provider(noteID: note.id, sessionID: store.sessionID) }
                             }
                             .buttonStyle(.plain)
                             .id(note.id)
                             .help("\(note.notebookName) / \(note.name)")
                             .contextMenu {
+                                Menu("Move to Notebook") {
+                                    ForEach(store.notebooks.filter { $0.name != note.notebookName }) { notebook in
+                                        Button(notebook.name) { moveNote(note.id, to: notebook) }
+                                    }
+                                }
+                                .disabled(store.isBusy || store.notebooks.count < 2)
                                 Button("Rename…") {
                                     noteName = note.name
                                     renamingNote = note
@@ -506,6 +517,14 @@ struct LibraryScreen: View {
         }
         .padding(24)
         .frame(width: 360)
+    }
+
+    private func moveNote(_ id: String, to notebook: Notebook) {
+        Task {
+            if await store.move(noteID: id, to: notebook.id), noteID == id, notebookID != "all" {
+                notebookID = notebook.id
+            }
+        }
     }
 
     private func renameNote(_ note: Note) {
