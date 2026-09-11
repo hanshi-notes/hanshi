@@ -4,10 +4,13 @@ import Testing
 @testable import Hanshi
 
 extension AppKitWindowTests {
-    @Test @MainActor func editButtonRespondsAcrossItsEntireFrame() async throws {
+    @Test(arguments: [false, true]) @MainActor
+    func editButtonRespondsAcrossItsEntireFrame(disabled: Bool) async throws {
         var clicks = 0
         let host = NSHostingView(rootView: BarButton(title: "Edit", icon: "highlighter") { clicks += 1 }
-            .barControl().padding(20))
+            .disabled(disabled)
+            .barControl().barGlassContainer()
+            .padding(20))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 74.5, height: 64),
             styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -27,7 +30,7 @@ extension AppKitWindowTests {
                 window.sendEvent(event)
             }
             await Task.yield()
-            #expect(clicks == before + 1, "Click at \(point) must activate Edit")
+            #expect(clicks == before + (disabled ? 0 : 1), "Click at \(point) must respect the button's enabled state")
         }
     }
 

@@ -277,6 +277,7 @@ struct LibraryScreen: View {
                 .keyboardShortcut("n")
                 .disabled(store.isBusy)
             }
+            .barGlassContainer()
             .padding(.horizontal, BarMetrics.margin)
             .frame(height: BarMetrics.height)
             .background(Color(white: 0.97))
@@ -392,6 +393,7 @@ struct LibraryScreen: View {
                         })
                     }
                 }
+                .barGlassContainer()
                 .padding(.horizontal, BarMetrics.margin)
                 .frame(height: BarMetrics.height)
                 .background(Color(white: 0.97))

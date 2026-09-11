@@ -45,7 +45,29 @@ struct BarButton: View {
 extension View {
     func barControl(cornerRadius: Double = BarMetrics.cornerRadius) -> some View {
         frame(height: BarMetrics.controlHeight)
-            .background(.white, in: RoundedRectangle(cornerRadius: cornerRadius))
-            .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(.black.opacity(0.14)))
+            .modifier(BarControlBackground(cornerRadius: cornerRadius))
+    }
+
+    @ViewBuilder func barGlassContainer() -> some View {
+        if #available(macOS 26, *) {
+            GlassEffectContainer(spacing: BarMetrics.margin) { self }
+        } else {
+            self
+        }
+    }
+}
+
+private struct BarControlBackground: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    let cornerRadius: Double
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(macOS 26, *), !reduceTransparency {
+            content.glassEffect(.regular, in: .capsule)
+        } else {
+            content
+                .background(.white, in: RoundedRectangle(cornerRadius: cornerRadius))
+                .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(.black.opacity(0.14)))
+        }
     }
 }
