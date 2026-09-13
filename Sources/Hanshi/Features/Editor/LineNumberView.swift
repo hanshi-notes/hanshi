@@ -29,7 +29,7 @@
 import AppKit
 
 final class LineNumberView: NSRulerView {
-    var font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular) {
+    var font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular) {
         didSet { updateThickness(); needsDisplay = true }
     }
     private(set) var lineStarts = [0]
@@ -37,6 +37,7 @@ final class LineNumberView: NSRulerView {
     init(textView: NSTextView, scrollView: NSScrollView) {
         super.init(scrollView: scrollView, orientation: .verticalRuler)
         clientView = textView
+        font = textView.font ?? font
         reservedThicknessForMarkers = 0
         // Scrolling blits the ruler over its own visible rect, and since macOS 14 that rect
         // is unclipped: without this the gutter smears line numbers over the toolbar above.
@@ -90,15 +91,21 @@ final class LineNumberView: NSRulerView {
             in: container, fractionOfDistanceBetweenInsertionPoints: nil)
         let attributes: [NSAttributedString.Key: Any] = [.font: font,
             .foregroundColor: (text.textColor ?? .textColor).withAlphaComponent(0.6)]
+        let textFont = text.font ?? .systemFont(ofSize: 14)
         for index in (lineNumber(at: first) - 1)..<lineStarts.count {
             guard let frame = text.textFrame(at: lineStarts[index]) else { continue }
             // Match the glyph baseline, including blank lines and expanded line spacing.
-            let baseline: CGFloat
+            var baseline: CGFloat
             if lineStarts[index] == text.textStorage?.length {
-                baseline = manager.defaultBaselineOffset(for: text.font ?? .systemFont(ofSize: 14))
+                baseline = manager.defaultBaselineOffset(for: textFont)
             } else {
                 let glyph = manager.glyphIndexForCharacter(at: lineStarts[index])
                 baseline = manager.location(forGlyphAt: glyph).y
+                // A paragraph-break glyph sits at the line's bottom, not its text baseline.
+                if manager.propertyForGlyph(at: glyph).contains(.controlCharacter),
+                   manager.typesetter.baselineOffset(in: manager, glyphIndex: glyph) == 0 {
+                    baseline -= manager.defaultLineHeight(for: textFont) - manager.defaultBaselineOffset(for: textFont)
+                }
             }
             let point = convert(frame.origin, from: text)
             if point.y > rect.maxY { break }

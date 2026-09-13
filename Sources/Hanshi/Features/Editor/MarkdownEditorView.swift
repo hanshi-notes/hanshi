@@ -60,7 +60,7 @@ final class MarkdownEditorSession: NSObject, NSTextViewDelegate {
         applyTheme()
         syntax = MarkdownSyntaxHighlighter(textView: textView, theme: theme)
         textView.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
-        textView.gutterView?.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        setGutterFont()
         textView.delegate = self
         // Give the tab its width now: nothing else applies it until a setting changes.
         applyParagraphStyle()
@@ -98,7 +98,7 @@ final class MarkdownEditorSession: NSObject, NSTextViewDelegate {
     }
 
     private func setGutterFont() {
-        textView.gutterView?.font = .monospacedSystemFont(ofSize: max(11, (textView.font?.pointSize ?? 14) - 3), weight: .regular)
+        textView.gutterView?.font = textView.font ?? .monospacedSystemFont(ofSize: 14, weight: .regular)
     }
 
     private func applyTheme() {

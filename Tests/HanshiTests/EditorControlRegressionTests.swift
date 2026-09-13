@@ -75,10 +75,12 @@ extension AppKitWindowTests {
         #expect(UserDefaults(suiteName: suite)?.bool(forKey: PreviewSettings.autoClosePairsKey) == false)
     }
 
-    @Test(arguments: [1.0, 2.0]) @MainActor func gutterLabelsAlignWithBlankAndWrappedLines(lineHeight: Double) throws {
-        let document = PreviewTestFixtures.document("One\n\n" + String(repeating: "wrapped ", count: 15) + "\nLast\n")
+    @Test(arguments: [1.0, 2.0], [false, true]) @MainActor
+    func gutterLabelsAlignWithBlankAndWrappedLines(lineHeight: Double, monaco: Bool) throws {
+        let document = PreviewTestFixtures.document("One\n\n \n\t\n\tIndented\n" + String(repeating: "wrapped ", count: 15) + "\nLast\n")
         let session = document.editor
         session.setGutter(true)
+        session.setFont(name: monaco ? "Monaco" : "", size: monaco ? 12 : 14)
         session.setTypography(lineHeight: lineHeight, ligatures: true)
         let editor = session.textView
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 250, height: 500),
@@ -121,8 +123,10 @@ extension AppKitWindowTests {
                         baseline = manager.extraLineFragmentRect.minY + manager.defaultBaselineOffset(for: editor.font!)
                     } else {
                         let glyph = manager.glyphIndexForCharacter(at: start)
+                        // Blank and indented lines must use the same typographic baseline
+                        // as the visible letters in the first line, not a control glyph's position.
                         baseline = manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil).minY
-                            + manager.location(forGlyphAt: glyph).y
+                            + manager.location(forGlyphAt: 0).y
                     }
                     let y = ruler.convert(NSPoint(x: 0, y: editor.textContainerOrigin.y + baseline), from: editor).y
                     let label = String(index + 1) as NSString
