@@ -11,6 +11,8 @@ struct LibraryScreen: View {
     @State private var isZen = false
     @State private var sidebarVisible = true
     @State private var notebooksExpanded = true
+    @State private var collapsedNotebookIDs: Set<String> = []
+    @State private var newNotebookParent: Notebook?
     @State private var layoutPreviewFocus: Bool?
     @State private var showingNotebookSheet = false
     @State private var showingDestinationSheet = false
@@ -46,6 +48,15 @@ struct LibraryScreen: View {
     private var visibleNotes: [Note] {
         (notebook?.notes ?? store.notes).filter {
             query.isEmpty || $0.name.localizedStandardContains(query)
+        }
+    }
+
+    private var visibleNotebooks: [Notebook] {
+        var collapsedAncestor: Notebook?
+        return store.notebooks.filter { notebook in
+            if collapsedAncestor?.contains(notebook.url) == true { return false }
+            collapsedAncestor = collapsedNotebookIDs.contains(notebook.id) ? notebook : nil
+            return true
         }
     }
 
@@ -89,6 +100,12 @@ struct LibraryScreen: View {
         libraryLayout
         .task(id: noteID) { await openSelectedNote() }
         .onChange(of: mode) { focusSelectedNote() }
+        .onChange(of: notebookID) {
+            guard let notebook else { return }
+            for ancestor in store.notebooks where ancestor.contains(notebook.url) {
+                collapsedNotebookIDs.remove(ancestor.id)
+            }
+        }
         .task(id: [isZen, sidebarVisible]) {
             guard let layoutPreviewFocus, let document else { return }
             self.layoutPreviewFocus = nil
@@ -176,29 +193,9 @@ struct LibraryScreen: View {
                     .accessibilityValue(notebooksExpanded ? "Expanded" : "Collapsed")
 
                     if notebooksExpanded {
-                        ForEach(store.notebooks) { notebook in
-                            Button { selectNotebook(notebook.id) } label: {
-                                sidebarRow(notebook.name, count: notebook.notes.count,
-                                           selected: notebookID == notebook.id || dropNotebookID == notebook.id)
-                                    .onDrop(of: [NoteDrag.type], delegate: NotebookDropDelegate(
-                                        store: store, notebookID: notebook.id, targetedNotebookID: $dropNotebookID,
-                                        move: { moveNote($0, to: notebook) }))
-                            }
-                            .contextMenu {
-                                Button("New Notebook…", action: showNewNotebook)
-                                    .disabled(store.isBusy)
-                                Button("Rename…") {
-                                    notebookName = notebook.name
-                                    renamingNotebook = notebook
-                                }
-                                .disabled(store.isBusy)
-                                Button("Move to Trash", role: .destructive) { trashingNotebook = notebook }
-                                    .disabled(store.isBusy)
-                                Divider()
-                                Button("Show in Finder") {
-                                    NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: notebook.url.path)
-                                }
-                            }
+                        let parents = Set(store.notebooks.map { $0.url.deletingLastPathComponent().standardizedFileURL })
+                        ForEach(visibleNotebooks) { notebook in
+                            notebookRow(notebook, hasChildren: parents.contains(notebook.url.standardizedFileURL))
                         }
                     }
                     sidebarRow("Tags", icon: "tag.fill", count: 0)
@@ -230,8 +227,53 @@ struct LibraryScreen: View {
         }
     }
 
+    private func notebookRow(_ notebook: Notebook, hasChildren: Bool) -> some View {
+        let indentation = CGFloat(notebook.path(in: store.files.root).split(separator: "/").count - 1) * 18
+        let collapsed = collapsedNotebookIDs.contains(notebook.id)
+        return Button { selectNotebook(notebook.id) } label: {
+            sidebarRow(notebook.name, count: notebook.notes.count,
+                       selected: notebookID == notebook.id || dropNotebookID == notebook.id,
+                       indentation: indentation)
+        }
+        .overlay(alignment: .leading) {
+            if hasChildren {
+                Button {
+                    if collapsed { collapsedNotebookIDs.remove(notebook.id) }
+                    else { collapsedNotebookIDs.insert(notebook.id) }
+                } label: {
+                    Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .frame(width: 23, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .padding(.leading, 12 + indentation)
+                .help(collapsed ? "Expand \(notebook.name)" : "Collapse \(notebook.name)")
+                .accessibilityLabel("Subnotebooks of \(notebook.name)")
+                .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
+            }
+        }
+        .onDrop(of: [NoteDrag.type], delegate: NotebookDropDelegate(
+            store: store, notebookID: notebook.id, targetedNotebookID: $dropNotebookID,
+            move: { moveNote($0, to: notebook) }))
+        .contextMenu {
+            Button("New Subnotebook…") { showNewNotebook(in: notebook) }
+                .disabled(store.isBusy)
+            Button("Rename…") {
+                notebookName = notebook.name
+                renamingNotebook = notebook
+            }
+            .disabled(store.isBusy)
+            Button("Move to Trash", role: .destructive) { trashingNotebook = notebook }
+                .disabled(store.isBusy)
+            Divider()
+            Button("Show in Finder") {
+                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: notebook.url.path)
+            }
+        }
+    }
+
     private func sidebarRow(_ name: String, icon: String? = nil, count: Int,
-                            selected: Bool = false) -> some View {
+                            selected: Bool = false, indentation: CGFloat = 0) -> some View {
         HStack(spacing: 5) {
             if let icon {
                 BarIconView(icon)
@@ -244,7 +286,7 @@ struct LibraryScreen: View {
             Text(count, format: .number)
                 .font(.system(size: 12, weight: .medium).monospacedDigit())
         }
-        .padding(.leading, icon == nil ? 35 : 12)
+        .padding(.leading, (icon == nil ? 35 : 12) + indentation)
         .padding(.trailing, 12)
         .frame(height: 32)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -311,8 +353,8 @@ struct LibraryScreen: View {
                             .help("\(note.notebookName) / \(note.name)")
                             .contextMenu {
                                 Menu("Move to Notebook") {
-                                    ForEach(store.notebooks.filter { $0.name != note.notebookName }) { notebook in
-                                        Button(notebook.name) { moveNote(note.id, to: notebook) }
+                                    ForEach(store.notebooks.filter { $0.url != note.url.deletingLastPathComponent() }) { notebook in
+                                        Button(notebook.path(in: store.files.root)) { moveNote(note.id, to: notebook) }
                                     }
                                 }
                                 .disabled(store.isBusy || store.notebooks.count < 2)
@@ -359,7 +401,7 @@ struct LibraryScreen: View {
                         Picker("Notebook", selection: Binding(get: { notebookID }, set: { selectNotebook($0) })) {
                             Text("All Notes").font(.system(size: 14)).tag("all")
                             ForEach(store.notebooks) { notebook in
-                                Text(notebook.name).font(.system(size: 14)).tag(notebook.id)
+                                Text(notebook.path(in: store.files.root)).font(.system(size: 14)).tag(notebook.id)
                             }
                         }
                         .pickerStyle(.menu)
@@ -452,7 +494,9 @@ struct LibraryScreen: View {
     private func notebookNameSheet(_ notebook: Notebook?) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             Text(notebook == nil ? "New Notebook" : "Rename Notebook").font(.title2.bold())
-            Text(notebook == nil ? "Create a folder in your Hanshi library." : "Rename this notebook and keep all its contents.").foregroundStyle(.secondary)
+            Text(notebook == nil
+                 ? "Create a folder in \(newNotebookParent?.path(in: store.files.root) ?? "your Hanshi library")."
+                 : "Rename this notebook and keep all its contents.").foregroundStyle(.secondary)
             TextField("Notebook name", text: $notebookName)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit { saveNotebook(notebook) }
@@ -482,7 +526,7 @@ struct LibraryScreen: View {
                             noteID = nil
                             createNote(in: notebook.url)
                         } label: {
-                            Label(notebook.name, systemImage: "book.closed")
+                            Label(notebook.path(in: store.files.root), systemImage: "book.closed")
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
@@ -595,7 +639,10 @@ struct LibraryScreen: View {
         return true
     }
 
-    private func showNewNotebook() {
+    private func showNewNotebook() { showNewNotebook(in: nil) }
+
+    private func showNewNotebook(in parent: Notebook?) {
+        newNotebookParent = parent
         renamingNotebook = nil
         notebookName = ""
         showingNotebookSheet = true
@@ -604,12 +651,13 @@ struct LibraryScreen: View {
     private func saveNotebook(_ target: Notebook?) {
         guard !store.isBusy, !notebookName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let name = notebookName
+        let parent = newNotebookParent
         showingNotebookSheet = false
         renamingNotebook = nil
         Task {
             if let target {
                 if await store.rename(target, to: name), notebookID == target.id { document?.editor.requestFocus() }
-            } else if let id = await store.createNotebook(named: name) {
+            } else if let id = await store.createNotebook(named: name, in: parent?.url) {
                 notebookID = id
                 noteID = nil
                 notebookName = ""

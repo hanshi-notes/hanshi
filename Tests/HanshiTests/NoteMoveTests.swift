@@ -158,9 +158,7 @@ extension AppKitWindowTests {
     let folder = try await library.files.createNotebook(named: "Other")
     let alias = library.root.appendingPathComponent("Alias")
     try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: folder)
-    let nested = folder.appendingPathComponent("Nested")
-    try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: false)
-    for destination in [library.root, note.url, alias, nested, library.root.appendingPathComponent("Missing")] {
+    for destination in [library.root, note.url, alias, library.root.appendingPathComponent("Missing")] {
         #expect(throws: (any Error).self) { try library.files.moveNote(at: note.url, to: destination) }
         #expect(try String(contentsOf: note.url, encoding: .utf8) == "keep")
     }

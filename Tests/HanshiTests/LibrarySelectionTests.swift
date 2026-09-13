@@ -173,14 +173,14 @@ private struct ContentModeBindingProbe: View {
 }
 
 // Exercise the real SwiftUI button actions through mouse events in the library's fixed-height rows.
-@MainActor private func clickRow(panel: Int, top: CGFloat, in host: NSView, window: NSWindow) throws {
+@MainActor private func clickRow(panel: Int, top: CGFloat, x: CGFloat = 60, in host: NSView, window: NSWindow) throws {
     func splitView(in view: NSView) -> NSSplitView? {
         if let split = view as? NSSplitView { return split }
         return view.subviews.lazy.compactMap { splitView(in: $0) }.first
     }
     let split = try #require(splitView(in: host))
     let column = split.arrangedSubviews[panel]
-    let point = NSPoint(x: 60, y: column.isFlipped ? top : column.bounds.height - top)
+    let point = NSPoint(x: x, y: column.isFlipped ? top : column.bounds.height - top)
     let location = column.convert(point, to: nil)
     for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
         let event = try #require(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
@@ -443,5 +443,51 @@ extension AppKitWindowTests {
         try await eventually { reopenedStore.documents[restored.id]?.text == "# Edited\n" }
         #expect(preferences.defaults.string(forKey: Note.selectionKey) == renamedPath,
                 "The reopened screen keeps the remembered note selected")
+    }
+}
+
+
+extension AppKitWindowTests {
+    @Test @MainActor func subnotebookDisclosureKeepsSelectionAndDrafts() async throws {
+        _ = NSApplication.shared
+        let library = TestLibrary()
+        _ = try await library.files.load()
+        let parent = try await library.files.createNotebook(named: "Parent")
+        let child = try await library.files.createNotebook(named: "Child", in: parent)
+        let deep = try await library.files.createNotebook(named: "Grandchild", in: child)
+        _ = try await library.files.createNote(in: deep, text: "original")
+        _ = try await library.files.createNotebook(named: "Sibling")
+        let store = NoteStore(root: library.root)
+        await store.refresh()
+        let nested = try #require(store.notebooks.first { $0.name == "Grandchild" })
+        let sibling = try #require(store.notebooks.first { $0.name == "Sibling" })
+        let note = try #require(nested.notes.first)
+        let preferences = TestPreferences(); defer { preferences.remove() }
+        let host = NSHostingView(rootView: LibraryScreen(defaults: preferences.defaults).environment(store))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 650),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host; window.orderFront(nil); host.layoutSubtreeIfNeeded()
+        defer { window.contentView = nil; window.close() }
+        try clickRow(panel: 0, top: 182, x: 95, in: host, window: window)
+        try await eventually { store.documents[note.id]?.editor.textView.window === window }
+        let document = try #require(store.documents[note.id])
+        document.edit("nested draft")
+        try clickRow(panel: 0, top: 118, x: 23, in: host, window: window)
+        try await Task.sleep(for: .milliseconds(50))
+        host.layoutSubtreeIfNeeded()
+        #expect(preferences.defaults.string(forKey: Notebook.selectionKey) == nested.id)
+        #expect(document.editor.textView.window === window)
+        try clickRow(panel: 0, top: 150, in: host, window: window)
+        try await eventually { preferences.defaults.string(forKey: Notebook.selectionKey) == sibling.id }
+        try clickRow(panel: 0, top: 118, x: 23, in: host, window: window)
+        try await Task.sleep(for: .milliseconds(50))
+        host.layoutSubtreeIfNeeded()
+        try clickRow(panel: 0, top: 182, x: 95, in: host, window: window)
+        try await eventually { preferences.defaults.string(forKey: Notebook.selectionKey) == nested.id }
+        #expect(store.documents[note.id] === document)
+        #expect(document.text == "nested draft")
+        #expect(document.isModified)
+        #expect(window.sheets.isEmpty)
     }
 }
