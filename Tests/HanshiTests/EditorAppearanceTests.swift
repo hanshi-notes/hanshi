@@ -10,6 +10,8 @@ import Testing
         _, _, _ in throw CocoaError(.fileWriteUnknown)
     }
     let editor = document.editor.textView
+    document.editor.setGutter(true)
+    #expect(editor.gutterView?.font == editor.font)
     editor.undoManager?.groupsByEvent = false
     editor.undoManager?.beginUndoGrouping()
     editor.insertText("New ", replacementRange: NSRange(location: 2, length: 0))
@@ -18,16 +20,19 @@ import Testing
     let text = document.text
     let systemFamily = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular).familyName
     for (family, requested, expectedFamily, expectedSize) in [
+        ("Monaco", 12.0, Optional("Monaco"), 12),
         ("Menlo", 28.0, Optional("Menlo"), 28),
         ("Helvetica", 20, Optional("Helvetica"), 20),
         ("", Double.greatestFiniteMagnitude, systemFamily, 144),
         ("Unavailable-Hanshi-Test-Font", -Double.greatestFiniteMagnitude, systemFamily, 10),
         ("", 14, systemFamily, 14)
     ] {
+        document.editor.setGutter(false)
         document.editor.setFont(family: family, size: requested)
+        document.editor.setGutter(true)
         #expect(editor.font!.familyName == expectedFamily)
         #expect(editor.font!.pointSize == CGFloat(expectedSize))
-        #expect(try #require(editor.gutterView?.font.pointSize) >= 11)
+        #expect(try #require(editor.gutterView?.font) == editor.font)
         #expect(editor.selectedRange() == selection)
         #expect(document.text == text)
     }
@@ -59,6 +64,7 @@ extension AppKitWindowTests {
         host.layoutSubtreeIfNeeded()
         #expect(document.editor.textView.font!.familyName == "Menlo")
         #expect(document.editor.textView.font!.pointSize == 28)
+        #expect(document.editor.textView.gutterView?.font == document.editor.textView.font)
         #expect(document.editor.textView.defaultParagraphStyle!.lineHeightMultiple == 1.8)
         #expect(document.editor.textView.typingAttributes[.ligature] as? Int == 0)
         defaults.set("Helvetica", forKey: EditorFont.familyKey)
@@ -73,6 +79,7 @@ extension AppKitWindowTests {
         #expect(document.editor.textView.font!.familyName == "Helvetica")
         #expect(document.editor.textView.font!.pointSize == 20.5)
         #expect(document.editor.textView.font!.fontName == "Helvetica-BoldOblique")
+        #expect(document.editor.textView.gutterView?.font == document.editor.textView.font)
         #expect(document.editor.textView.defaultParagraphStyle!.lineHeightMultiple == 1.2)
         #expect(document.editor.textView.typingAttributes[.ligature] as? Int == 1)
         #expect(!document.isModified)

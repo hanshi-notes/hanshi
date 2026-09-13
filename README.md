@@ -2,6 +2,17 @@
 
 A native macOS notebook browser built with SwiftUI. Requires macOS 15.0+ and Swift tools 6.3 or later, using Swift 6 language mode. The development toolchain is Swift 6.3.3.
 
+## Experimental preview development
+
+The `experimental` branch uses our [swift-markdown-engine fork](https://github.com/hanshi-notes/swift-markdown-engine) as a local SwiftPM dependency, tracked as a Git submodule:
+
+```sh
+git clone --recurse-submodules --branch experimental https://github.com/hanshi-notes/hanshi.git
+cd hanshi
+```
+
+For an existing checkout, run `git submodule update --init`. `Package.swift` resolves `Vendor/swift-markdown-engine`, so engine edits are compiled directly into Hanshi. Each repository has its own commits and tests: run `swift test` for the app and `swift test --package-path Vendor/swift-markdown-engine` for the engine. Commit and push engine changes before committing and pushing the app's updated submodule pointer.
+
 The scripts use `swift` and `swiftc` from your `PATH`, matching the compiler selected in your terminal (including Swiftly). If `swift --version` already reports 6.3+, build directly:
 
 ```sh
@@ -11,6 +22,8 @@ swift test
 Scripts/package_app.sh
 open build/Hanshi.app
 ```
+
+Packaging requires Xcode's asset catalog compiler (`xcrun actool`). The app icon comes from `Sources/Hanshi/Resources/Assets.xcassets/AppIcon.appiconset`; the packaging script compiles the catalog into the app's resources and merges its icon metadata before signing. After packaging, run `python3 Tests/Scripts/test_app_icon.py` to verify the icon metadata, all icon resolutions, and the bundle signature.
 
 Building Mermaid requires Rust/Cargo (install the stable toolchain from [rustup.rs](https://rustup.rs)). `Scripts/build_mermaid.sh` builds the locked merman/resvg static library for the host architecture; rerun it after changes to `Native/Mermaid`. The packaging script runs it automatically. Rust, Node and JavaScript runtimes are not required on the end user’s Mac.
 
@@ -22,21 +35,24 @@ The first launch creates `~/Documents/hanshi` without adding sample content or c
 
 The layout follows the supplied Notable replica: full-height dark sidebar, full-width selection rows, and grouped note actions. Click **Notebooks** or use **⌘⇧N** to create a folder.
 
-Search filenames with **⌘⇧F**, refresh from disk with **⌘R**, and toggle Zen with **⌘⌥Z**. Hide or show the notebook sidebar from **View** (**⌃⌘S**), keeping the note list and document visible; its visibility is preserved when leaving Zen. Choose Editor, Preview, or Split from **View** (**⌘⌥1**, **⌘⌥2**, **⌘⌥3**); the pencil toggles Editor/Preview and also offers the modes in its context menu. The library also refreshes when the app becomes active. Folder and file context menus open Finder. Notebooks and notes keep filesystem identity when renamed externally.
+Search filenames with **⌘⇧F**, refresh from disk with **⌘R**, and toggle Zen with **⌘⌥Z**. Hide or show the notebook sidebar from **View** (**⌃⌘S**), keeping the note list and document visible; its visibility is preserved when leaving Zen. Choose Editor, Preview, or Split from **View** (**⌘⌥1**, **⌘⌥2**, **⌘⌥3**); the pencil toggles Editor/Preview and also offers the modes in its context menu. The selected notebook is restored on the next launch, including after a folder rename; a missing notebook falls back to All Notes. Settings → General → Startup chooses the initial content view (Editor by default, Preview, or Split). Changing this preference takes effect on the next launch and does not change the current view. The library also refreshes when the app becomes active. Folder and file context menus open Finder. Notebooks and notes keep filesystem identity when renamed externally.
 
-The Markdown editor uses NSTextView with TextKit 1 and incremental Tree-sitter highlighting, with manual saving, undo/redo, and draft preservation across notes and content modes. The selectable native preview renders the unsaved draft with cmark-gfm, HighlightKit code highlighting, SwaTex formulas and merman 0.7.0/resvg 0.47.0 diagrams. Split synchronizes scrolling by source blocks; switching modes preserves editor selection and undo/redo. Preview links to catalog notes preserve the reading mode and focus. Autosave, continuous filesystem watching, and library-location preferences remain planned.
+Wiki-links open catalog notes from Preview or the preview pane in Split View. Use `[[Project]]` for a unique note name or `[[Work/Project]]` for a path relative to the library root; `.md` is optional. Names match without case sensitivity and support Unicode. Repeated names require a notebook path. Missing, ambiguous, and invalid links are dimmed; hover over one for an explanation and, for ambiguous names, the candidate paths. Editing keeps the plain wiki-link syntax in the Markdown file. Renaming and moving notes do not yet rewrite links in other notes.
+
+The Markdown editor uses NSTextView with TextKit 1 and incremental Tree-sitter highlighting, with manual saving, undo/redo, and draft preservation across notes and content modes. The preview displays and edits the unsaved draft through MarkdownEngine and TextKit 2, with manual saving and undo/redo. Settings → Editing → Markdown Preview controls whether previews are editable (enabled by default) and whether Markdown markers appear around the text being edited (disabled by default). Both preferences apply immediately; hiding markers preserves the Markdown source. Hanshi retains cmark-gfm for source anchors and bounded resource preparation, HighlightKit code highlighting, SwaTex formulas and merman 0.7.0/resvg 0.47.0 diagrams. Split synchronizes scrolling by source blocks; switching modes preserves editor selection and undo/redo. Preview links to catalog notes preserve the reading mode and focus. Autosave, continuous filesystem watching, and library-location preferences remain planned.
 
 Editor fences have language-specific highlighting for Swift, Python, Bash, JavaScript, TypeScript, JSON, HTML and CSS. YAML metadata and JavaScript's JSDoc/Regex injections are also retained. Other fence languages use the Markdown literal color in the editor; the preview continues to use HighlightKit's language catalog. The parser list is deliberately limited to keep compiled grammar tables out of the shipped binary.
 
-Preview supports GFM tables, task lists (read-only), strikethrough, reference links/images and literal HTML. Front matter remains visible. Local raster images are restricted to the library, including symlink validation; remote images are never downloaded. Web/email links open only when clicked; local non-Markdown attachments are revealed in Finder. Refresh with **⌘R** to reread changed images.
+The experimental preview uses MarkdownEngine’s Markdown dialect for headings, tables, task lists, strikethrough and inline links. Reference-style links/images and inline image placement do not yet have parity with the previous cmark preview. Plain-text copy preserves Markdown source; rich-text copy provides formatted content. Front matter remains visible. Local raster images are restricted to the library, including symlink validation; remote images are never downloaded. Web/email links open only when clicked; local non-Markdown attachments are revealed in Finder. Refresh with **⌘R** to reread changed images.
 
 Use `$…$` for inline formulas, `$$…$$` for display formulas and fenced `mermaid` blocks for diagrams. Escaped dollars and code remain literal; single-dollar formulas cannot cross a newline, code span or HTML tag. Unclosed delimiters remain visible. Invalid formulas/diagrams show their source and a diagnostic. Mermaid is a compatibility implementation, not guaranteed browser-identical output; rasterized diagrams do not execute callbacks or load external resources.
 
-Work is bounded: notes up to 2 MB, Markdown nesting up to 128 levels, code highlighting up to 64 KB per block (larger blocks remain readable), formulas up to 4 KB/64 brace levels, diagrams up to 32 KB/256 lines/512 statements. Images are limited to 20 MB and 80 million input pixels and downsampled to 2048 pixels. A render is limited to 256 media attachments and 32 million output pixels; task-list markers reuse two symbol attachments. The preview currently uses the app’s light appearance.
+Work is bounded: notes up to 2 MB, Markdown nesting up to 128 levels, code highlighting up to 64 KB per block (larger blocks remain readable), formulas up to 4 KB/64 brace levels, diagrams up to 32 KB/256 lines/512 statements. Images are limited to 20 MB and 80 million input pixels and downsampled to 2048 pixels. A render is limited to 256 media attachments and 32 million output pixels. The preview currently uses the app’s light appearance.
 
 The app has one window and quits when that window closes. The packaging script makes a locally ad-hoc-signed app without App Sandbox, bundling syntax queries, formula fonts and third-party license notices. Resource bundles are placed in `Contents/Resources`. Packaging applies the small, checked `Patches/SwaTex-resource-bundle.patch` to the pinned checkout so its font loader finds that signed-app location; normal SwiftPM builds retain their existing fallback. No math or synchronization code is changed. The Rust renderer is statically linked; the build produces the host architecture. Developer ID signing and notarization are not configured.
 
-Preview parsing, highlighting, and attributed-text composition run off the main actor. The composed text and its paragraph/table objects transfer ownership once using Swift `sending`; attachment cells and view updates stay on the main actor. Resizing invalidates only recorded media ranges. Run `swift test -c release --filter previewCorpusRendersAtTenHundredAndThousandKilobytes` for composition measurements and `swift test -c release --filter previewHundredKilobyteUpdatesIncludeApplicationAndLayout` for end-to-end updates. `longest_batch` measures attachment finalization on the main actor, excluding storage application and layout.
+Resource parsing, highlighting, formulas and diagrams are prepared off the main actor. MarkdownEngine performs its own Markdown styling and TextKit 2 layout on the main actor. The existing cmark composition tests remain as coverage for the resource/clipboard-independent renderer; they are not measurements of the new onscreen preview. Run `swift test -c release --filter previewHundredKilobyteUpdatesIncludeApplicationAndLayout` for end-to-end preview measurements. Image and diagram resizing uses the engine's recorded block ranges without reloading the note. No performance improvement is claimed by this integration.
+
 
 Editor syntax colors use temporary NSLayoutManager attributes, so changing a theme does not alter source text or undo history. The editor retains its font, indentation, gutter and invisible-character preferences and adds 13 bundled CotEditor themes with a themed preview in Appearance settings. CotEditor adaptations and resource revisions are listed in `Sources/Hanshi/Resources/ThirdPartyNotices/Editor-Sources.md`. No CotEditor image resources are included.
 

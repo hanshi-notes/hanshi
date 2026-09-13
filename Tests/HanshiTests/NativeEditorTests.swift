@@ -114,7 +114,8 @@ extension AppKitWindowTests {
             NSRect(x: 0, y: 0, width: width, height: height).fill()
             context.cgContext.translateBy(x: CGFloat(margin), y: CGFloat(height - margin))
             context.cgContext.scaleBy(x: 1, y: -1)
-            ruler.drawHashMarksAndLabels(in: ruler.bounds.insetBy(dx: -50, dy: -50))
+            // Exercise AppKit's view clipping, including the ruler's cached hash-mark drawing.
+            ruler.displayIgnoringOpacity(ruler.bounds.insetBy(dx: -50, dy: -50), in: context)
             NSGraphicsContext.restoreGraphicsState()
             var outsideInk = 0
             var insideInk = 0

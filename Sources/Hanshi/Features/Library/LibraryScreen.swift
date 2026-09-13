@@ -2,12 +2,17 @@ import SwiftUI
 
 struct LibraryScreen: View {
     @Environment(NoteStore.self) private var store
-    @State private var notebookID = "all"
+    @AppStorage(Notebook.selectionKey) private var notebookID = "all"
+    @AppStorage(SidebarTheme.key) private var sidebarTheme = SidebarTheme.standard
     @State private var noteID: String?
+    @State private var restoredPath: String?
     @State private var query = ""
     @State private var mode = ContentMode.source
     @State private var isZen = false
     @State private var sidebarVisible = true
+    @State private var notebooksExpanded = true
+    @State private var collapsedNotebookIDs: Set<String> = []
+    @State private var newNotebookParent: Notebook?
     @State private var layoutPreviewFocus: Bool?
     @State private var showingNotebookSheet = false
     @State private var showingDestinationSheet = false
@@ -20,11 +25,21 @@ struct LibraryScreen: View {
     @State private var trashingNote: Note?
     @State private var renamingNotebook: Notebook?
     @State private var trashingNotebook: Notebook?
+    @State private var dropNotebookID: String?
     @FocusState private var searchFocused: Bool
 
-    init(mode: ContentMode = .source, noteID: String? = nil) {
-        _mode = State(initialValue: mode)
+    private let defaults: UserDefaults
+
+    init(mode: ContentMode? = nil, noteID: String? = nil, defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        _notebookID = AppStorage(wrappedValue: "all", Notebook.selectionKey, store: defaults)
+        _sidebarTheme = AppStorage(wrappedValue: .standard, SidebarTheme.key, store: defaults)
+        _mode = State(initialValue: mode ?? defaults.string(forKey: ContentMode.startupKey).flatMap(ContentMode.init(rawValue:)) ?? .source)
         _noteID = State(initialValue: noteID)
+        // Reopen on the note the reader left, alongside the notebook. Saving rewrites the file
+        // atomically, so a note's id changes with every save and only its path still names it
+        // at the next launch; the catalog arrives later, so the restore waits for it.
+        _restoredPath = State(initialValue: noteID == nil ? defaults.string(forKey: Note.selectionKey) : nil)
     }
 
     private var notebook: Notebook? { store.notebooks.first { $0.id == notebookID } }
@@ -33,6 +48,15 @@ struct LibraryScreen: View {
     private var visibleNotes: [Note] {
         (notebook?.notes ?? store.notes).filter {
             query.isEmpty || $0.name.localizedStandardContains(query)
+        }
+    }
+
+    private var visibleNotebooks: [Notebook] {
+        var collapsedAncestor: Notebook?
+        return store.notebooks.filter { notebook in
+            if collapsedAncestor?.contains(notebook.url) == true { return false }
+            collapsedAncestor = collapsedNotebookIDs.contains(notebook.id) ? notebook : nil
+            return true
         }
     }
 
@@ -47,7 +71,8 @@ struct LibraryScreen: View {
                 }
                 if !isZen {
                     noteList
-                        .frame(minWidth: 180, idealWidth: geometry.size.width * 0.272, maxWidth: 560)
+                        .frame(minWidth: sidebarVisible ? 180 : 180 + BarMetrics.windowControlsInset,
+                               idealWidth: geometry.size.width * 0.272, maxWidth: 560)
                         .ignoresSafeArea(.container, edges: .top)
                 }
                 content
@@ -75,6 +100,13 @@ struct LibraryScreen: View {
     var body: some View {
         libraryLayout
         .task(id: noteID) { await openSelectedNote() }
+        .onChange(of: mode) { focusSelectedNote() }
+        .onChange(of: notebookID) {
+            guard let notebook else { return }
+            for ancestor in store.notebooks where ancestor.contains(notebook.url) {
+                collapsedNotebookIDs.remove(ancestor.id)
+            }
+        }
         .task(id: [isZen, sidebarVisible]) {
             guard let layoutPreviewFocus, let document else { return }
             self.layoutPreviewFocus = nil
@@ -85,11 +117,31 @@ struct LibraryScreen: View {
                 document.editor.requestFocus()
             }
         }
-        .onChange(of: store.notebooks.map(\.id)) { _, ids in
-            if notebookID != "all", !ids.contains(notebookID) { notebookID = "all" }
+        .onChange(of: store.resourceGeneration, initial: true) {
+            // An empty catalog before the first successful load is not a deleted notebook.
+            guard store.hasLoaded else { return }
+            if notebookID != "all", !store.notebooks.contains(where: { $0.id == notebookID }) { notebookID = "all" }
         }
-        .onChange(of: store.notes.map(\.id)) { _, ids in
-            if let noteID, !ids.contains(noteID), store.documents[noteID] == nil { self.noteID = nil }
+        .onChange(of: store.notes.map(\.id), initial: true) { _, ids in
+            // An empty catalog before the first load is not a deleted note, and dropping the
+            // restored selection there would defeat reopening where the reader left off.
+            guard store.hasLoaded else { return }
+            var selection = noteID
+            if let restoredPath {
+                self.restoredPath = nil
+                selection = store.notes.first { $0.url.path == restoredPath }?.id
+                noteID = selection
+            }
+            guard let selection else { return }
+            if !ids.contains(selection), store.documents[selection] == nil { noteID = nil; return }
+            // A restored selection names a note that did not exist when the screen mounted,
+            // so `.task(id: noteID)` already ran and found nothing. Open it now that it does.
+            if ids.contains(selection), store.documents[selection] == nil {
+                Task { await openSelectedNote() }
+            }
+        }
+        .onChange(of: selectedNote?.url ?? document?.url, initial: true) { _, url in
+            rememberSelectedNote(url)
         }
         .sheet(isPresented: $showingNotebookSheet) { notebookNameSheet(nil) }
         .sheet(item: $renamingNotebook) { notebook in notebookNameSheet(notebook) }
@@ -127,39 +179,33 @@ struct LibraryScreen: View {
 
     private var sidebar: some View {
         VStack(spacing: 0) {
-            Color.clear.frame(height: BarMetrics.height)
+            HStack {
+                Spacer()
+                BarButton(title: "New Notebook", icon: "plus", color: sidebarTheme.foreground, action: showNewNotebook)
+                    // A white surface over the sidebar colour would outweigh the bar's buttons.
+                    .barControl(surface: sidebarTheme.foreground.opacity(0.06), border: sidebarTheme.foreground.opacity(0.25))
+                    .help("New Notebook (⇧⌘N)")
+                    .disabled(store.isBusy)
+            }
+            .padding(.horizontal, BarMetrics.margin)
+            .frame(height: BarMetrics.height)
             ScrollView {
                 LazyVStack(spacing: 0) {
                     Button { selectNotebook("all") } label: {
                         sidebarRow("All Notes", icon: "doc.text.fill", count: store.notes.count,
                                    selected: notebookID == "all")
                     }
-                    Button { showNewNotebook() } label: {
-                        sidebarRow("Notebooks", icon: "list.bullet.rectangle.fill", count: store.notes.count)
+                    Button { notebooksExpanded.toggle() } label: {
+                        sidebarRow("Notebooks", icon: notebooksExpanded ? "chevron.down" : "chevron.right",
+                                   count: store.notes.count)
                     }
-                    .help("New Notebook (⌘⇧N)")
-                    .keyboardShortcut("n", modifiers: [.command, .shift])
-                    .disabled(store.isBusy)
+                    .help(notebooksExpanded ? "Collapse Notebooks" : "Expand Notebooks")
+                    .accessibilityValue(notebooksExpanded ? "Expanded" : "Collapsed")
 
-                    ForEach(store.notebooks) { notebook in
-                        Button { selectNotebook(notebook.id) } label: {
-                            sidebarRow(notebook.name, count: notebook.notes.count,
-                                       selected: notebookID == notebook.id)
-                        }
-                        .contextMenu {
-                            Button("New Notebook…", action: showNewNotebook)
-                                .disabled(store.isBusy)
-                            Button("Rename…") {
-                                notebookName = notebook.name
-                                renamingNotebook = notebook
-                            }
-                            .disabled(store.isBusy)
-                            Button("Move to Trash", role: .destructive) { trashingNotebook = notebook }
-                                .disabled(store.isBusy)
-                            Divider()
-                            Button("Show in Finder") {
-                                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: notebook.url.path)
-                            }
+                    if notebooksExpanded {
+                        let parents = Set(store.notebooks.map { $0.url.deletingLastPathComponent().standardizedFileURL })
+                        ForEach(visibleNotebooks) { notebook in
+                            notebookRow(notebook, hasChildren: parents.contains(notebook.url.standardizedFileURL))
                         }
                     }
                     sidebarRow("Tags", icon: "tag.fill", count: 0)
@@ -168,8 +214,8 @@ struct LibraryScreen: View {
                 .buttonStyle(.plain)
             }
         }
-        .background(Color(red: 0.12, green: 0.16, blue: 0.18))
-        .foregroundStyle(.white)
+        .background(sidebarTheme.background)
+        .foregroundStyle(sidebarTheme.foreground)
         .contextMenu {
             Button("New Notebook…") { showNewNotebook() }
                 .disabled(store.isBusy)
@@ -180,6 +226,10 @@ struct LibraryScreen: View {
                 .disabled(store.isBusy)
         }
         .background {
+            Button("New Notebook", action: showNewNotebook)
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .disabled(store.isBusy)
+                .hidden()
             Button("Refresh Library") { Task { await store.refresh() } }
                 .keyboardShortcut("r")
                 .disabled(store.isBusy)
@@ -187,8 +237,53 @@ struct LibraryScreen: View {
         }
     }
 
+    private func notebookRow(_ notebook: Notebook, hasChildren: Bool) -> some View {
+        let indentation = CGFloat(notebook.path(in: store.files.root).split(separator: "/").count - 1) * 18
+        let collapsed = collapsedNotebookIDs.contains(notebook.id)
+        return Button { selectNotebook(notebook.id) } label: {
+            sidebarRow(notebook.name, count: notebook.notes.count,
+                       selected: notebookID == notebook.id || dropNotebookID == notebook.id,
+                       indentation: indentation)
+        }
+        .overlay(alignment: .leading) {
+            if hasChildren {
+                Button {
+                    if collapsed { collapsedNotebookIDs.remove(notebook.id) }
+                    else { collapsedNotebookIDs.insert(notebook.id) }
+                } label: {
+                    Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .frame(width: 23, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .padding(.leading, 12 + indentation)
+                .help(collapsed ? "Expand \(notebook.name)" : "Collapse \(notebook.name)")
+                .accessibilityLabel("Subnotebooks of \(notebook.name)")
+                .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
+            }
+        }
+        .onDrop(of: [NoteDrag.type], delegate: NotebookDropDelegate(
+            store: store, notebookID: notebook.id, targetedNotebookID: $dropNotebookID,
+            move: { moveNote($0, to: notebook) }))
+        .contextMenu {
+            Button("New Subnotebook…") { showNewNotebook(in: notebook) }
+                .disabled(store.isBusy)
+            Button("Rename…") {
+                notebookName = notebook.name
+                renamingNotebook = notebook
+            }
+            .disabled(store.isBusy)
+            Button("Move to Trash", role: .destructive) { trashingNotebook = notebook }
+                .disabled(store.isBusy)
+            Divider()
+            Button("Show in Finder") {
+                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: notebook.url.path)
+            }
+        }
+    }
+
     private func sidebarRow(_ name: String, icon: String? = nil, count: Int,
-                            selected: Bool = false) -> some View {
+                            selected: Bool = false, indentation: CGFloat = 0) -> some View {
         HStack(spacing: 5) {
             if let icon {
                 BarIconView(icon)
@@ -201,12 +296,12 @@ struct LibraryScreen: View {
             Text(count, format: .number)
                 .font(.system(size: 12, weight: .medium).monospacedDigit())
         }
-        .padding(.leading, icon == nil ? 35 : 12)
+        .padding(.leading, (icon == nil ? 35 : 12) + indentation)
         .padding(.trailing, 12)
         .frame(height: 32)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .background(selected ? Color.white.opacity(0.08) : .clear)
+        .background(selected ? sidebarTheme.foreground.opacity(0.08) : .clear)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
@@ -214,6 +309,11 @@ struct LibraryScreen: View {
     private var noteList: some View {
         VStack(spacing: 0) {
             HStack(spacing: BarMetrics.margin) {
+                BarButton(title: sidebarVisible ? "Hide Notebook Sidebar" : "Show Notebook Sidebar", icon: "sidebar.left") {
+                    layoutBinding($sidebarVisible).wrappedValue.toggle()
+                }
+                .barControl()
+                .help(sidebarVisible ? "Hide Notebook Sidebar (⌃⌘S)" : "Show Notebook Sidebar (⌃⌘S)")
                 HStack(spacing: 0) {
                     TextField("Search…", text: $query)
                         .textFieldStyle(.plain)
@@ -238,6 +338,9 @@ struct LibraryScreen: View {
                 .keyboardShortcut("n")
                 .disabled(store.isBusy)
             }
+            .barGlassContainer()
+            // Without the notebook column, this bar is the one under the window's buttons.
+            .padding(.leading, sidebarVisible ? 0 : BarMetrics.windowControlsInset)
             .padding(.horizontal, BarMetrics.margin)
             .frame(height: BarMetrics.height)
             .background(Color(white: 0.97))
@@ -260,11 +363,18 @@ struct LibraryScreen: View {
                         ForEach(visibleNotes) { note in
                             Button { selectNote(note.id) } label: {
                                 NoteRowView(note: note, selected: noteID == note.id)
+                                    .onDrag { NoteDrag.provider(noteID: note.id, sessionID: store.sessionID) }
                             }
                             .buttonStyle(.plain)
                             .id(note.id)
                             .help("\(note.notebookName) / \(note.name)")
                             .contextMenu {
+                                Menu("Move to Notebook") {
+                                    ForEach(store.notebooks.filter { $0.url != note.url.deletingLastPathComponent() }) { notebook in
+                                        Button(notebook.path(in: store.files.root)) { moveNote(note.id, to: notebook) }
+                                    }
+                                }
+                                .disabled(store.isBusy || store.notebooks.count < 2)
                                 Button("Rename…") {
                                     noteName = note.name
                                     renamingNote = note
@@ -308,7 +418,7 @@ struct LibraryScreen: View {
                         Picker("Notebook", selection: Binding(get: { notebookID }, set: { selectNotebook($0) })) {
                             Text("All Notes").font(.system(size: 14)).tag("all")
                             ForEach(store.notebooks) { notebook in
-                                Text(notebook.name).font(.system(size: 14)).tag(notebook.id)
+                                Text(notebook.path(in: store.files.root)).font(.system(size: 14)).tag(notebook.id)
                             }
                         }
                         .pickerStyle(.menu)
@@ -353,19 +463,22 @@ struct LibraryScreen: View {
                         })
                     }
                 }
+                .barGlassContainer()
                 .padding(.horizontal, BarMetrics.margin)
                 .frame(height: BarMetrics.height)
                 .background(Color(white: 0.97))
                 .overlay(alignment: .bottom) { Divider() }
             }
+            // Zen hides the bar; the document keeps its place so it stays clear of the window's buttons.
             documentContent
+                .padding(.top, isZen ? BarMetrics.height : 0)
         }
     }
 
     @ViewBuilder private var documentContent: some View {
         if let document {
             NoteEditorContentView(document: document, files: store.files, mode: mode,
-                                  libraryID: store.sessionID, resourceGeneration: store.resourceGeneration,
+                                  libraryID: store.sessionID, resourceGeneration: store.resourceGeneration, noteURLs: store.notes.map(\.url),
                                   preview: previewSession)
                 .onAppear { previewSession.openNote = openPreviewNote }
         } else if noteID != nil {
@@ -400,7 +513,9 @@ struct LibraryScreen: View {
     private func notebookNameSheet(_ notebook: Notebook?) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             Text(notebook == nil ? "New Notebook" : "Rename Notebook").font(.title2.bold())
-            Text(notebook == nil ? "Create a folder in your Hanshi library." : "Rename this notebook and keep all its contents.").foregroundStyle(.secondary)
+            Text(notebook == nil
+                 ? "Create a folder in \(newNotebookParent?.path(in: store.files.root) ?? "your Hanshi library")."
+                 : "Rename this notebook and keep all its contents.").foregroundStyle(.secondary)
             TextField("Notebook name", text: $notebookName)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit { saveNotebook(notebook) }
@@ -430,7 +545,7 @@ struct LibraryScreen: View {
                             noteID = nil
                             createNote(in: notebook.url)
                         } label: {
-                            Label(notebook.name, systemImage: "book.closed")
+                            Label(notebook.path(in: store.files.root), systemImage: "book.closed")
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
@@ -467,6 +582,14 @@ struct LibraryScreen: View {
         .frame(width: 360)
     }
 
+    private func moveNote(_ id: String, to notebook: Notebook) {
+        Task {
+            if await store.move(noteID: id, to: notebook.id), noteID == id, notebookID != "all" {
+                notebookID = notebook.id
+            }
+        }
+    }
+
     private func renameNote(_ note: Note) {
         guard !store.isBusy else { return }
         let name = noteName
@@ -495,6 +618,13 @@ struct LibraryScreen: View {
         searchFocused = false
         noteID = id
         if id != nil { focusSelectedNote() }
+    }
+
+    /// The reader's place in the library, so the next launch opens where they left off. Renaming
+    /// a note moves its file, so this follows the path the selection has now.
+    private func rememberSelectedNote(_ url: URL?) {
+        if let url { defaults.set(url.path, forKey: Note.selectionKey) }
+        else if noteID == nil, restoredPath == nil { defaults.removeObject(forKey: Note.selectionKey) }
     }
 
     private func openSelectedNote() async {
@@ -528,7 +658,10 @@ struct LibraryScreen: View {
         return true
     }
 
-    private func showNewNotebook() {
+    private func showNewNotebook() { showNewNotebook(in: nil) }
+
+    private func showNewNotebook(in parent: Notebook?) {
+        newNotebookParent = parent
         renamingNotebook = nil
         notebookName = ""
         showingNotebookSheet = true
@@ -537,12 +670,13 @@ struct LibraryScreen: View {
     private func saveNotebook(_ target: Notebook?) {
         guard !store.isBusy, !notebookName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let name = notebookName
+        let parent = newNotebookParent
         showingNotebookSheet = false
         renamingNotebook = nil
         Task {
             if let target {
                 if await store.rename(target, to: name), notebookID == target.id { document?.editor.requestFocus() }
-            } else if let id = await store.createNotebook(named: name) {
+            } else if let id = await store.createNotebook(named: name, in: parent?.url) {
                 notebookID = id
                 noteID = nil
                 notebookName = ""

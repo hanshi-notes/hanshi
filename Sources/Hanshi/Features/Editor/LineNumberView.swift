@@ -29,7 +29,7 @@
 import AppKit
 
 final class LineNumberView: NSRulerView {
-    var font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular) {
+    var font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular) {
         didSet { updateThickness(); needsDisplay = true }
     }
     private(set) var lineStarts = [0]
@@ -37,6 +37,7 @@ final class LineNumberView: NSRulerView {
     init(textView: NSTextView, scrollView: NSScrollView) {
         super.init(scrollView: scrollView, orientation: .verticalRuler)
         clientView = textView
+        font = textView.font ?? font
         reservedThicknessForMarkers = 0
         // Scrolling blits the ruler over its own visible rect, and since macOS 14 that rect
         // is unclipped: without this the gutter smears line numbers over the toolbar above.
@@ -76,23 +77,42 @@ final class LineNumberView: NSRulerView {
         return max(1, lower)
     }
     override func drawHashMarksAndLabels(in rect: NSRect) {
-        guard let text = clientView as? NSTextView, let first = text.firstVisibleCharacter() else { return }
+        guard let text = clientView as? NSTextView, let manager = text.layoutManager,
+              let container = text.textContainer else { return }
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
-        // Scrolled line labels and oversized damage must stay inside the gutter.
-        bounds.intersection(rect).clip()
+        // AppKit prepares hash marks beyond the viewport for scrolling. Clip to its
+        // requested drawing area; clipsToBounds keeps the displayed ruler in its column.
+        rect.clip()
         text.backgroundColor.setFill()
-        rect.intersection(bounds).fill()
+        rect.fill()
+        let top = text.convert(NSPoint(x: 0, y: rect.minY), from: self).y - text.textContainerOrigin.y
+        let first = manager.characterIndex(for: NSPoint(x: container.lineFragmentPadding, y: max(0, top)),
+            in: container, fractionOfDistanceBetweenInsertionPoints: nil)
         let attributes: [NSAttributedString.Key: Any] = [.font: font,
             .foregroundColor: (text.textColor ?? .textColor).withAlphaComponent(0.6)]
+        let textFont = text.font ?? .systemFont(ofSize: 14)
         for index in (lineNumber(at: first) - 1)..<lineStarts.count {
             guard let frame = text.textFrame(at: lineStarts[index]) else { continue }
+            // Match the glyph baseline, including blank lines and expanded line spacing.
+            var baseline: CGFloat
+            if lineStarts[index] == text.textStorage?.length {
+                baseline = manager.defaultBaselineOffset(for: textFont)
+            } else {
+                let glyph = manager.glyphIndexForCharacter(at: lineStarts[index])
+                baseline = manager.location(forGlyphAt: glyph).y
+                // A paragraph-break glyph sits at the line's bottom, not its text baseline.
+                if manager.propertyForGlyph(at: glyph).contains(.controlCharacter),
+                   manager.typesetter.baselineOffset(in: manager, glyphIndex: glyph) == 0 {
+                    baseline -= manager.defaultLineHeight(for: textFont) - manager.defaultBaselineOffset(for: textFont)
+                }
+            }
             let point = convert(frame.origin, from: text)
-            if point.y > bounds.maxY { break }
+            if point.y > rect.maxY { break }
             let label = String(index + 1) as NSString
             let size = label.size(withAttributes: attributes)
             label.draw(at: NSPoint(x: ruleThickness - size.width - 8,
-                                   y: point.y + max(0, (frame.height - size.height) / 2)), withAttributes: attributes)
+                                   y: point.y + baseline - manager.defaultBaselineOffset(for: font)), withAttributes: attributes)
         }
     }
     override func mouseDown(with event: NSEvent) {

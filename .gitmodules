@@ -1,0 +1,4 @@
+[submodule "Vendor/swift-markdown-engine"]
+	path = Vendor/swift-markdown-engine
+	url = https://github.com/hanshi-notes/swift-markdown-engine.git
+	branch = experimental

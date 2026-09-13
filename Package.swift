@@ -7,6 +7,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [.executable(name: "Hanshi", targets: ["Hanshi"])],
     dependencies: [
+        .package(path: "Vendor/swift-markdown-engine"),
         .package(url: "https://github.com/swiftlang/swift-cmark", revision: "7898f1b3e4befeecee56cb4a3bc8eebd2cb63219"),
         .package(url: "https://github.com/PhraseHQ/HighlightKit", revision: "524c185b0553756498c1b6a1765e8d119c4623a6"),
         .package(url: "https://github.com/PhraseHQ/SwaTex", revision: "2b38d0b9b9b9466ac1302ab93b37f3b90b8c74fc"),
@@ -32,13 +33,14 @@ let package = Package(
         ]),
         .executableTarget(name: "Hanshi", dependencies: [
             "CMarkdown", "CMermaid",
+            .product(name: "MarkdownEngine", package: "swift-markdown-engine"),
             .product(name: "cmark-gfm", package: "swift-cmark"),
             .product(name: "cmark-gfm-extensions", package: "swift-cmark"),
             .product(name: "HighlightKit", package: "HighlightKit"),
             .product(name: "SwaTex", package: "SwaTex"),
             .product(name: "SwaTexRender", package: "SwaTex"),
             "EditorSyntax"
-        ], resources: [.copy("Resources/ThirdPartyNotices"), .copy("Resources/Themes"), .copy("Resources/Syntax")], swiftSettings: [
+        ], exclude: ["Resources/Assets.xcassets"], resources: [.copy("Resources/ThirdPartyNotices"), .copy("Resources/Themes"), .copy("Resources/Syntax")], swiftSettings: [
             .defaultIsolation(MainActor.self),
             .enableUpcomingFeature("NonisolatedNonsendingByDefault")
         ], linkerSettings: [

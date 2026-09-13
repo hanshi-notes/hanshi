@@ -2,9 +2,90 @@ import AppKit
 import HighlightKit
 
 nonisolated struct PreviewTheme: Equatable, Sendable {
-    var bodySize = 17.0
-    var codeSize = 14.0
-    var inset = NSSize(width: 36, height: 12)
+    static let defaultBodySize = 17.0
+    static let bodySizeRange = 11.0...28.0
+    static let defaultMargin = 38.0
+    static let marginRange = 8.0...160.0
+    static let defaultVerticalMargin = 14.0
+    static let verticalMarginRange = 0.0...120.0
+    static let defaultLineHeight = 1.25
+    static let lineHeightRange = 1.0...2.5
+
+    var bodySize: Double
+    var codeSize: Double { bodySize }
+    var inset: NSSize
+    /// PostScript name of the reading font; empty means the system font.
+    var fontName: String
+    /// Family of the same font. Some faces do not come back from `NSFont(name:)` even
+    /// though the panel offered them, so the family is the second chance before the
+    /// system font. The editor stores both for the same reason.
+    var fontFamily: String
+    /// Multiple of the font's natural line height, like the editor's own control.
+    var lineHeight: Double
+
+    /// Code and prose share one text-size setting.
+    init(bodySize: Double = defaultBodySize,
+         margin: Double = defaultMargin,
+         verticalMargin: Double = defaultVerticalMargin,
+         fontName: String = "",
+         fontFamily: String = "",
+         lineHeight: Double = defaultLineHeight) {
+        let body = Self.clampedBodySize(bodySize)
+        self.bodySize = body
+        self.inset = NSSize(width: Self.clampedMargin(margin),
+                            height: Self.clampedVerticalMargin(verticalMargin))
+        self.fontName = fontName
+        self.fontFamily = fontFamily
+        self.lineHeight = Self.clampedLineHeight(lineHeight)
+    }
+
+    static func clampedBodySize(_ value: Double) -> Double {
+        value.isFinite ? min(max(value, bodySizeRange.lowerBound), bodySizeRange.upperBound) : defaultBodySize
+    }
+
+    static func clampedMargin(_ value: Double) -> Double {
+        value.isFinite ? min(max(value, marginRange.lowerBound), marginRange.upperBound) : defaultMargin
+    }
+
+    static func clampedVerticalMargin(_ value: Double) -> Double {
+        value.isFinite ? min(max(value, verticalMarginRange.lowerBound), verticalMarginRange.upperBound) : defaultVerticalMargin
+    }
+
+    static func clampedLineHeight(_ value: Double) -> Double {
+        value.isFinite ? min(max(value, lineHeightRange.lowerBound), lineHeightRange.upperBound) : defaultLineHeight
+    }
+
+    /// The reading font at `size`, falling back to the system font when the stored name
+    /// names something this Mac no longer has.
+    func bodyFont(size: Double) -> NSFont {
+        if !fontName.isEmpty, let font = NSFont(name: fontName, size: size) { return font }
+        if !fontFamily.isEmpty,
+           let font = NSFontManager.shared.font(withFamily: fontFamily, traits: [], weight: 5, size: size) {
+            return font
+        }
+        return .systemFont(ofSize: size)
+    }
+
+    /// Headings in the chosen face, bolded through traits. The system font has real weights,
+    /// so it keeps using them: `.bold` on SF Pro Display is not the same as `.semibold`.
+    func headingFont(size: Double, heavy: Bool) -> NSFont {
+        let font = bodyFont(size: size)
+        // The system font has real weights, so it keeps using them: `.bold` traits on SF Pro
+        // are not the same as asking for its bold cut.
+        guard font != .systemFont(ofSize: size) else {
+            return .systemFont(ofSize: size, weight: heavy ? .bold : .semibold)
+        }
+        let traits = font.fontDescriptor.symbolicTraits.union(.bold)
+        return NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(traits), size: size) ?? font
+    }
+
+    /// Extra points between lines. AppKit's `.backgroundColor` fills the line fragment, so
+    /// this must stay out of `lineHeightMultiple` or inline code sits in a slab.
+    var bodyLineSpacing: Double {
+        let font = bodyFont(size: bodySize)
+        let natural = ceil(font.ascender - font.descender + font.leading)
+        return max(0, ((lineHeight - 1) * natural).rounded())
+    }
 }
 
 extension NSAttributedString.Key {
@@ -61,9 +142,11 @@ nonisolated final class PreviewCodeBlock: NSTextTableBlock {
         table.layoutAlgorithm = .fixedLayoutAlgorithm
         table.setValue(100, type: .percentageValueType, for: .width)
         super.init(table: table, startingRow: 0, rowSpan: 1, startingColumn: 0, columnSpan: 1)
-        setWidth(12, type: .absoluteValueType, for: .padding)
-        setWidth(8, type: .absoluteValueType, for: .margin, edge: .minY)
-        setWidth(8, type: .absoluteValueType, for: .margin, edge: .maxY)
+        setWidth(16, type: .absoluteValueType, for: .padding)
+        setWidth(8, type: .absoluteValueType, for: .padding, edge: .minY)
+        setWidth(8, type: .absoluteValueType, for: .padding, edge: .maxY)
+        setWidth(6, type: .absoluteValueType, for: .margin, edge: .minY)
+        setWidth(6, type: .absoluteValueType, for: .margin, edge: .maxY)
         backgroundColor = NSColor(white: 0.95, alpha: 1)
     }
     required init?(coder: NSCoder) { super.init(coder: coder) }
@@ -162,9 +245,11 @@ extension MarkdownRenderer {
                 if let cached = fonts[key] { return cached }
                 let base: NSFont
                 if heading > 0 {
-                    base = .systemFont(ofSize: theme.bodySize * [1.9, 1.55, 1.3, 1.15, 1, 0.95][min(5, heading - 1)], weight: .semibold)
+                    base = theme.headingFont(size: theme.bodySize * [2.0, 1.6, 1.3, 1.15, 1, 0.95][min(5, heading - 1)],
+                                             heavy: heading == 1)
                 } else {
-                    base = code ? .monospacedSystemFont(ofSize: theme.codeSize, weight: .regular) : .systemFont(ofSize: theme.bodySize)
+                    base = code ? .monospacedSystemFont(ofSize: theme.codeSize, weight: .regular)
+                                : theme.bodyFont(size: theme.bodySize)
                 }
                 var traits = base.fontDescriptor.symbolicTraits
                 if bold { traits.insert(.bold) }
@@ -184,15 +269,17 @@ extension MarkdownRenderer {
                 if let cached = paragraphs[descriptor] { paragraph = cached }
                 else {
                     let style = NSMutableParagraphStyle()
-                    style.lineHeightMultiple = 1.2
-                    style.lineSpacing = 2
-                    style.paragraphSpacing = descriptor.compact ? 4 : 12
-                    style.paragraphSpacingBefore = descriptor.heading > 0 ? 20 : 0
+                    // Leading goes in lineSpacing, not lineHeightMultiple: a multiple grows
+                    // the line fragment and `.backgroundColor` fills all of it, so inline code
+                    // would sit in a slab tall enough to touch the line above.
+                    style.lineSpacing = theme.bodyLineSpacing
+                    style.paragraphSpacing = descriptor.compact ? 5 : 14
+                    style.paragraphSpacingBefore = descriptor.heading > 0 ? 12 : 0
                     style.headIndent = Double(descriptor.indent) * 20 + Double(descriptor.quote) * 16
                     style.firstLineHeadIndent = style.headIndent
                     style.lineBreakMode = .byWordWrapping
-                    if descriptor.heading > 0 { style.lineHeightMultiple = 1.05 }
-                    if descriptor.code { style.paragraphSpacing = 0; style.lineHeightMultiple = 1.1 }
+                    if descriptor.heading > 0 { style.lineSpacing = 2; style.paragraphSpacing = 6 }
+                    if descriptor.code { style.paragraphSpacing = 0; style.lineSpacing = 4 }
                     if descriptor.codeBlock != nil { style.textBlocks = [PreviewCodeBlock()] }
                     if let cell = descriptor.cell {
                         let table = tables[cell.table] ?? {
@@ -224,6 +311,10 @@ extension MarkdownRenderer {
                 }
                 let runFont = font(heading: descriptor.heading, code: run.code || descriptor.code, bold: run.bold, italic: run.italic)
                 var attributes: [NSAttributedString.Key: Any] = [.font: runFont, .foregroundColor: descriptor.quote > 0 ? NSColor.secondaryLabelColor : NSColor.labelColor, .paragraphStyle: paragraph]
+                // Display-size text tracks loose at its default spacing; tighten the two largest levels.
+                if descriptor.heading == 1 || descriptor.heading == 2 {
+                    attributes[.kern] = runFont.pointSize * -0.02
+                }
                 if (run.code || descriptor.code) && descriptor.codeBlock == nil && run.media == nil { attributes[.backgroundColor] = NSColor(white: 0.96, alpha: 1) }
                 if run.strike { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
                 if let link = run.link { attributes[.link] = link; attributes[.foregroundColor] = NSColor.linkColor }

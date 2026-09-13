@@ -147,14 +147,14 @@ func notebookNamesRejectInvalidInput(name: String) async throws {
     #expect(try String(contentsOf: first.url, encoding: .utf8) == "external")
 }
 
-@Test func notebookActionsRejectTheLibraryRootFilesNestedFoldersAndSymlinks() async throws {
+@Test func notebookActionsRejectTheLibraryRootFilesAndSymlinks() async throws {
     let library = TestLibrary()
     let note = try await library.note("keep")
     let nested = note.url.deletingLastPathComponent().appendingPathComponent("Nested")
     try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: false)
     let alias = library.root.appendingPathComponent("Alias")
     try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: nested)
-    for url in [library.root, note.url, nested, alias] {
+    for url in [library.root, note.url, alias] {
         #expect(throws: LibraryError.invalidNotebook) { try library.files.renameNotebook(at: url, to: "Renamed") }
         #expect(throws: LibraryError.invalidNotebook) { try library.files.trashNotebook(at: url) }
     }

@@ -74,18 +74,18 @@ private actor PreviewRenderGate {
     session.show(snapshot, document: document); await session.waitForRendering()
     #expect(session.textView.string.contains("Unsaved"))
     #expect(document.isModified && document.saved.text == "Saved")
-    #expect(session.composition?.attachments.first?.originalSize.width == 20)
+    #expect(previewImages(in: session.textView).first?.size.width == 20)
     try fixture.png(width: 40).write(to: fixture.root.appendingPathComponent("image.png"))
     snapshot.resources += 1
     session.show(snapshot, document: document); await session.waitForRendering()
-    #expect(session.composition?.attachments.first?.originalSize.width == 40)
+    #expect(previewImages(in: session.textView).first?.size.width == 40)
     let subfolder = fixture.root.appendingPathComponent("subfolder")
     try FileManager.default.createDirectory(at: subfolder, withIntermediateDirectories: true)
     try fixture.png(width: 60).write(to: subfolder.appendingPathComponent("image.png"))
     document.url = subfolder.appendingPathComponent("Renamed.md")
     snapshot = PreviewSnapshot(library: snapshot.library, documentID: document.id, text: document.text, url: document.url, root: fixture.root)
     session.show(snapshot, document: document); await session.waitForRendering()
-    #expect(session.composition?.attachments.first?.originalSize.width == 60)
+    #expect(previewImages(in: session.textView).first?.size.width == 60)
     #expect(document.errorMessage == nil)
     session.hide()
 }
@@ -112,14 +112,14 @@ private actor PreviewRenderGate {
     let session = MarkdownPreviewSession(debounce: .zero)
     var snapshot = PreviewTestFixtures.snapshot("**Bold** and $x^2$\n\n| A | B |\n|---|---|\n| Tea | 2 |")
     session.show(snapshot); await session.waitForRendering()
-    #expect(session.textView.textLayoutManager == nil)
+    #expect(session.textView.textLayoutManager != nil)
     #expect(!session.textView.isEditable && session.textView.isSelectable)
     session.textView.setSelectedRange(NSRange(location: 0, length: session.textView.string.utf16.count))
     let pasteboard = NSPasteboard.withUniqueName()
     defer { pasteboard.releaseGlobally() }
     #expect(session.textView.writeSelection(to: pasteboard, types: [.string, .rtf]))
     let copied = try #require(pasteboard.string(forType: .string))
-    #expect(copied.contains("Bold and $x^2$"))
+    #expect(copied.contains("**Bold** and $x^2$"))
     #expect(copied.contains("Tea"))
     let rtf = try #require(pasteboard.data(forType: .rtf))
     let richCopy = try NSAttributedString(data: rtf, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
@@ -175,10 +175,21 @@ extension AppKitWindowTests {
     let snapshot = PreviewTestFixtures.snapshot("![image](image.png)", root: fixture.root)
     let session = MarkdownPreviewSession(debounce: .zero)
     session.show(snapshot); await session.waitForRendering()
-    #expect(session.composition?.attachments.first?.originalSize.width == 20)
+    #expect(previewImages(in: session.textView).first?.size.width == 20)
     session.hide()
     try fixture.png(width: 40).write(to: path)
     session.show(snapshot); await session.waitForRendering()
-    #expect(session.composition?.attachments.first?.originalSize.width == 40)
+    #expect(previewImages(in: session.textView).first?.size.width == 40)
     session.hide()
+}
+
+@MainActor func previewImages(in view: NSTextView) -> [NSImage] {
+    guard let storage = view.textStorage else { return [] }
+    var images: [NSImage] = []
+    storage.enumerateAttributes(in: NSRange(location: 0, length: storage.length)) { attributes, _, _ in
+        for value in attributes.values {
+            if let image = value as? NSImage, !images.contains(where: { $0 === image }) { images.append(image) }
+        }
+    }
+    return images
 }

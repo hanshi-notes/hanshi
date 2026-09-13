@@ -5,22 +5,28 @@ nonisolated struct LibraryFiles: Sendable {
 
     @concurrent func load() async throws -> [Notebook] {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        return try children(of: root).compactMap { folder in
+        return try loadNotebooks(in: root)
+    }
+
+    // Depth-first order keeps each notebook immediately before its descendants.
+    private func loadNotebooks(in parent: URL) throws -> [Notebook] {
+        try children(of: parent).flatMap { folder -> [Notebook] in
             let values = try folder.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-            guard values.isDirectory == true, values.isSymbolicLink != true else { return nil }
+            guard values.isDirectory == true, values.isSymbolicLink != true else { return [] }
             let notes = try children(of: folder).compactMap { url -> Note? in
                 guard url.pathExtension.lowercased() == "md" else { return nil }
                 let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
                 guard values.isRegularFile == true, values.isSymbolicLink != true else { return nil }
                 return Note(id: try fileID(url), url: url)
             }
-            return Notebook(id: try fileID(folder), url: folder, notes: notes)
+            return try [Notebook(id: fileID(folder), url: folder, notes: notes)] + loadNotebooks(in: folder)
         }
     }
 
-    @concurrent func createNotebook(named name: String) async throws -> URL {
+    @concurrent func createNotebook(named name: String, in parent: URL? = nil) async throws -> URL {
         let name = try validatedName(name)
-        let folder = root.appendingPathComponent(name, isDirectory: true)
+        if let parent { try validateNotebook(parent) }
+        let folder = (parent ?? root).appendingPathComponent(name, isDirectory: true)
         guard !FileManager.default.fileExists(atPath: folder.path) else {
             throw CocoaError(.fileWriteFileExists)
         }
@@ -29,13 +35,7 @@ nonisolated struct LibraryFiles: Sendable {
     }
 
     @concurrent func createNote(in folder: URL, text: String = "") async throws -> URL {
-        guard folder.deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL else {
-            throw LibraryError.invalidNotebook
-        }
-        let values = try folder.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-        guard values.isDirectory == true, values.isSymbolicLink != true else {
-            throw LibraryError.invalidNotebook
-        }
+        try validateNotebook(folder)
         // ponytail: tries "Note", "Note (1)", … in order; O(notes in the notebook) per creation.
         var number = 0
         while number < Int.max {
@@ -93,8 +93,15 @@ nonisolated struct LibraryFiles: Sendable {
     }
 
     func renameNotebook(at url: URL, to name: String) throws -> URL {
-        let destination = root.appendingPathComponent(try validatedName(name), isDirectory: true)
+        let destination = url.deletingLastPathComponent().appendingPathComponent(try validatedName(name), isDirectory: true)
         return try moveItem(at: url, to: destination, validate: validateNotebook)
+    }
+
+    func moveNote(at url: URL, to notebook: URL) throws -> URL {
+        try moveItem(at: url, to: notebook.appendingPathComponent(url.lastPathComponent)) { source in
+            try validateNotebook(notebook)
+            try validateNote(source)
+        }
     }
 
     private func moveItem(at url: URL, to destination: URL, validate: (URL) throws -> Void) throws -> URL {
@@ -150,21 +157,25 @@ nonisolated struct LibraryFiles: Sendable {
     }
 
     private func validateNote(_ url: URL) throws {
-        let folder = url.deletingLastPathComponent()
-        guard folder.deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL,
-              url.pathExtension.lowercased() == "md" else { throw LibraryError.invalidNote }
-        let folderValues = try folder.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        do { try validateNotebook(url.deletingLastPathComponent()) }
+        catch { throw LibraryError.invalidNote }
+        guard url.pathExtension.lowercased() == "md" else { throw LibraryError.invalidNote }
         let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-        guard folderValues.isDirectory == true, folderValues.isSymbolicLink != true,
-              values.isRegularFile == true, values.isSymbolicLink != true else { throw LibraryError.invalidNote }
+        guard values.isRegularFile == true, values.isSymbolicLink != true else { throw LibraryError.invalidNote }
     }
 
     private func validateNotebook(_ url: URL) throws {
-        guard url.deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL else {
+        let roots = [root.standardizedFileURL, root.resolvingSymlinksInPath().standardizedFileURL]
+        var folder = url.standardizedFileURL
+        guard roots.contains(where: { folder.path.hasPrefix($0.path + "/") }) else {
             throw LibraryError.invalidNotebook
         }
-        let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-        guard values.isDirectory == true, values.isSymbolicLink != true else { throw LibraryError.invalidNotebook }
+        // Check every ancestor: resolving the whole path would hide a symbolic link inside the library.
+        while !roots.contains(folder) {
+            let values = try folder.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            guard values.isDirectory == true, values.isSymbolicLink != true else { throw LibraryError.invalidNotebook }
+            folder.deleteLastPathComponent()
+        }
     }
 
     private func contents(at url: URL) throws -> NoteContents {

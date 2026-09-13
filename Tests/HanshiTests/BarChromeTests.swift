@@ -7,7 +7,7 @@ import Testing
     _ = NSApplication.shared
     let symbols = ["square.and.arrow.down", "highlighter", "tag.fill", "paperclip", "star", "pin.fill",
                    "trash.fill", "square.and.arrow.up", "arrow.up.forward.square", "plus",
-                   "magnifyingglass", "doc.text.fill", "list.bullet.rectangle.fill"]
+                   "magnifyingglass", "doc.text.fill", "list.bullet.rectangle.fill", "sidebar.left"]
     var largestSides: [Double] = []
     for symbol in symbols {
         let button = BarIconView(symbol)
@@ -66,13 +66,16 @@ import Testing
     }
 }
 
-@Test @MainActor func barControlsShareOneHeightAndAreCentredInTheBar() throws {
+@Test(.enabled(if: ProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26,
+               "Checks the solid borders used before Liquid Glass"))
+@MainActor func barControlsShareOneHeightAndAreCentredInTheBar() throws {
     _ = NSApplication.shared
     let width = 250.0
     let bar = HStack(spacing: BarMetrics.margin) {
         Color.clear.frame(maxWidth: .infinity).barControl(cornerRadius: 5)
         BarIconView("plus").frame(width: BarMetrics.buttonWidth).barControl()
     }
+    .barGlassContainer()
     .padding(.horizontal, BarMetrics.margin)
     .frame(width: width, height: BarMetrics.height)
     .background(Color(white: 0.97))
@@ -86,6 +89,18 @@ import Testing
     }
     #expect(abs(field.minY - button.minY) <= 0.5, "field and button tops differ: \(field.minY) vs \(button.minY)")
     #expect(abs(field.maxY - button.maxY) <= 0.5, "field and button bottoms differ: \(field.maxY) vs \(button.maxY)")
+}
+
+@Test @MainActor func barSurfacesPreserveControlLayout() {
+    _ = NSApplication.shared
+    let host = NSHostingView(rootView: HStack(spacing: BarMetrics.margin) {
+        Color.clear.frame(width: 180).barControl(cornerRadius: 5)
+        BarButton(title: "New Note", icon: "plus", action: {}).barControl()
+    }
+    .barGlassContainer())
+    // NSHostingView rounds its fitting width to whole points.
+    #expect(abs(host.fittingSize.width - 224.5) <= 0.5)
+    #expect(host.fittingSize.height == 24)
 }
 
 private struct Rendering {

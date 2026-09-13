@@ -5,6 +5,7 @@ import Observation
 final class NoteStore {
     private(set) var notebooks: [Notebook] = []
     private(set) var isBusy = false
+    private(set) var hasLoaded = false
     var errorMessage: String?
     let files: LibraryFiles
     let sessionID = UUID()
@@ -51,17 +52,18 @@ final class NoteStore {
                     return note
                 })
             }
+            hasLoaded = true
             for document in documents.values { await document.reload(using: files) }
         }
         catch { errorMessage = error.localizedDescription }
     }
 
-    func createNotebook(named name: String) async -> String? {
+    func createNotebook(named name: String, in parent: URL? = nil) async -> String? {
         guard !isBusy else { return nil }
         isBusy = true
         defer { isBusy = false }
         do {
-            let url = try await files.createNotebook(named: name).resolvingSymlinksInPath()
+            let url = try await files.createNotebook(named: name, in: parent).resolvingSymlinksInPath()
             isBusy = false
             await refresh()
             // The loaded URLs come from FileManager, so compare them resolved: a library reached
@@ -133,6 +135,28 @@ final class NoteStore {
         }
     }
 
+    @discardableResult func move(noteID: String, to notebookID: String) async -> Bool {
+        guard !isBusy, let note = notes.first(where: { $0.id == noteID }),
+              let notebook = notebooks.first(where: { $0.id == notebookID }) else { return false }
+        isBusy = true
+        defer { isBusy = false }
+        let document = documents[noteID]
+        if document?.isSaving == true, await document?.save() != true {
+            errorMessage = document?.errorMessage
+            return false
+        }
+        do {
+            let url = try files.moveNote(at: document?.url ?? note.url, to: notebook.url)
+            document?.url = url
+            isBusy = false
+            await refresh()
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
     /// Keeps the file named after the note's heading, until someone renames the file by hand.
     private func renameToMatchHeading(_ document: NoteDocument, previousText: String) async {
         guard usesTitleTemplate, !isBusy,
@@ -145,7 +169,7 @@ final class NoteStore {
     /// `name`, or the first "name (n)" free in the note's notebook, so a shared heading cannot
     /// fail the save with a name clash.
     private func availableName(_ name: String, like note: Note) -> String {
-        let taken = Set(notes.filter { $0.notebookName == note.notebookName && $0.id != note.id }.map(\.name))
+        let taken = Set(notes.filter { $0.url.deletingLastPathComponent() == note.url.deletingLastPathComponent() && $0.id != note.id }.map(\.name))
         guard taken.contains(name) else { return name }
         return (1...).lazy.map { "\(name) (\($0))" }.first { !taken.contains($0) } ?? name
     }
@@ -187,12 +211,16 @@ final class NoteStore {
         }
         do {
             let url = try files.renameNotebook(at: notebook.url, to: name)
-            for document in documents(in: notebook) {
-                document.url = url.appendingPathComponent(document.url.lastPathComponent)
+            func relocated(_ oldURL: URL) -> URL {
+                let suffix = oldURL.standardizedFileURL.pathComponents
+                    .dropFirst(notebook.url.standardizedFileURL.pathComponents.count).joined(separator: "/")
+                return suffix.isEmpty ? url : url.appendingPathComponent(suffix)
             }
-            if let index = notebooks.firstIndex(where: { $0.id == notebook.id }) {
-                notebooks[index] = Notebook(id: notebook.id, url: url, notes: notebooks[index].notes.map {
-                    Note(id: $0.id, url: url.appendingPathComponent($0.url.lastPathComponent))
+            for document in documents(in: notebook) { document.url = relocated(document.url) }
+            notebooks = notebooks.map { item in
+                guard item.id == notebook.id || notebook.contains(item.url) else { return item }
+                return Notebook(id: item.id, url: relocated(item.url), notes: item.notes.map {
+                    Note(id: $0.id, url: relocated($0.url))
                 })
             }
             isBusy = false
@@ -212,7 +240,7 @@ final class NoteStore {
         do {
             try files.trashNotebook(at: notebook.url)
             for document in documents(in: notebook) { documents.removeValue(forKey: document.id) }
-            notebooks.removeAll { $0.id == notebook.id }
+            notebooks.removeAll { $0.id == notebook.id || notebook.contains($0.url) }
             isBusy = false
             await refresh()
             return true
@@ -220,7 +248,7 @@ final class NoteStore {
     }
 
     private func documents(in notebook: Notebook) -> [NoteDocument] {
-        documents.values.filter { $0.url.deletingLastPathComponent().standardizedFileURL.path == notebook.url.standardizedFileURL.path }
+        documents.values.filter { notebook.contains($0.url) }
     }
 
     enum CloseAction { case save, discard, cancel }

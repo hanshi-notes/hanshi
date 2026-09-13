@@ -81,12 +81,13 @@ extension AppKitWindowTests {
         defer { session.hide(); window.contentView = nil; window.close() }
         session.show(snapshot); await session.waitForRendering()
         session.textView.setSelectedRange(NSRange(location: 0, length: 5))
-        let bitmap = try #require(session.composition?.attachments.first)
-        let originalWidth = bitmap.bitmap.size.width
+        let imageRange = (source as NSString).range(of: "![Wide](wide.png)")
+        let originalWidth = try #require(session.frame(at: imageRange.location, length: imageRange.length)).width
         window.setContentSize(NSSize(width: 300, height: 500)); window.contentView?.layoutSubtreeIfNeeded(); window.displayIfNeeded()
-        session.resizeAttachments()
-        #expect(bitmap.bitmap.size.width < originalWidth)
-        #expect(bitmap.bitmap.size.width <= session.textView.bounds.width)
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        let resizedWidth = try #require(session.frame(at: imageRange.location, length: imageRange.length)).width
+        #expect(resizedWidth < originalWidth)
+        #expect(resizedWidth <= session.textView.bounds.width)
         #expect(session.textView.selectedRange() == NSRange(location: 0, length: 5))
         #expect(session.appliedSnapshot == snapshot)
         let table = (session.textView.string as NSString).range(of: "Value")
@@ -114,6 +115,6 @@ extension AppKitWindowTests {
         session.show(PreviewTestFixtures.snapshot("# New note\n\n" + String(repeating: "Readable text. ", count: 50)))
         await session.waitForRendering()
         #expect(session.scrollView.contentView.bounds.minY <= 1)
-        #expect(session.textView.string.hasPrefix("New note"))
+        #expect(session.textView.string.hasPrefix("# New note"))
     }
 }

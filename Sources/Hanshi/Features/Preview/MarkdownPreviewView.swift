@@ -1,10 +1,12 @@
 import AppKit
 import SwiftUI
 import Observation
+import MarkdownEngine
 
-@Observable final class MarkdownPreviewSession: NSObject, NSTextViewDelegate {
+@Observable final class MarkdownPreviewSession {
     let scrollView: NSScrollView
-    let textView: PreviewTextView
+    let textView: NSTextView
+    @ObservationIgnored let engine: NativeTextViewCoordinator
     private(set) var message: String?
     private(set) var isRendering = false
     private(set) var appliedSnapshot: PreviewSnapshot?
@@ -32,42 +34,24 @@ import Observation
          }) {
         self.debounce = debounce
         self.renderer = renderer
-        let storage = NSTextStorage()
-        let layout = NSLayoutManager()
-        let container = NSTextContainer(containerSize: NSSize(width: 700, height: CGFloat.greatestFiniteMagnitude))
-        storage.addLayoutManager(layout)
-        layout.addTextContainer(container)
-        container.widthTracksTextView = true
-        container.lineFragmentPadding = 0
-        textView = PreviewTextView(frame: NSRect(x: 0, y: 0, width: 700, height: 500), textContainer: container)
-        scrollView = PreviewScrollView(frame: .zero)
-        super.init()
-        textView.delegate = self
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.isRichText = true
+        let wrapper = NativeTextViewWrapper(text: .constant(""), configuration: PreviewTheme().engineConfiguration, isEditable: false)
+        engine = wrapper.makeCoordinator()
+        scrollView = wrapper.makeAppKitView(coordinator: engine)
+        textView = engine.textView!
         textView.allowsUndo = false
         textView.usesFontPanel = false
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
-        textView.minSize = .zero
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainerInset = PreviewTheme().inset
         textView.backgroundColor = .white
         textView.setAccessibilityLabel("Markdown preview")
-        scrollView.contentView = PreviewClipView()
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.drawsBackground = false
-        scrollView.documentView = textView
-        textView.onResize = { [weak self] in self?.resizeAttachments() }
+        engine.onOpenLink = { [weak self] target in self?.followLink(target) }
     }
 
     func show(_ snapshot: PreviewSnapshot, document: NoteDocument? = nil) {
         self.document = document
         guard requested != snapshot else { return }
         let previous = requested
+        let switching = appliedSnapshot?.documentID != snapshot.documentID || appliedSnapshot?.library != snapshot.library
+        textView.isEditable = snapshot.settings.allowsEditing && document != nil && !switching
+        textView.allowsUndo = textView.isEditable
         requested = snapshot
         token = UUID()
         waiting?.cancel(); pending = nil; worker?.cancel()
@@ -80,6 +64,7 @@ import Observation
         // Style-only updates reuse both the parse and HighlightKit tokens.
         if var applied = appliedSnapshot, recipe != nil {
             applied.theme = snapshot.theme
+            applied.settings = snapshot.settings
             if applied == snapshot {
                 isRendering = true
                 enqueue(snapshot, token: token)
@@ -110,6 +95,7 @@ import Observation
         let render = renderer
         var styled = appliedSnapshot
         styled?.theme = snapshot.theme
+        styled?.settings = snapshot.settings
         let styleOnly = styled == snapshot && appliedSnapshot != snapshot && cached != nil
         worker = Task { [weak self] in
             let result: Result<MarkdownRecipe, any Error>
@@ -150,30 +136,62 @@ import Observation
         show(snapshot, document: document)
     }
     private func apply(_ recipe: MarkdownRecipe, snapshot: PreviewSnapshot, requestToken: UUID) async throws {
-        let result = try await MarkdownRenderer.compose(recipe, theme: snapshot.theme)
         try Task.checkCancellation()
         guard token == requestToken, requested == snapshot, isCurrent(snapshot) else { return }
+        // An in-flight native keystroke or IME composition must win over an older render.
+        guard !textView.hasMarkedText(), engine.pendingSourceText == nil || engine.pendingSourceText == snapshot.text else { return }
+        let nativeEdit = appliedSnapshot?.documentID == snapshot.documentID
+            && appliedSnapshot?.text != snapshot.text && engine.sourceText == snapshot.text
         let selection = textView.selectedRange()
-        let oldAnchor = readingPosition()
+        let oldAnchor = nativeEdit ? nil : readingPosition()
         let oldComposition = composition
+        let resources = EnginePreviewResources(recipe: recipe)
+        var configuration = snapshot.theme.engineConfiguration
+        configuration.lists.autoClosePairsEnabled = snapshot.settings.autoClosePairs
+        configuration.showsMarkdownMarkersWhileEditing = snapshot.settings.showsMarkdownMarkers
+        configuration.services = MarkdownEditorServices(wikiLinks: WikiLinkIndex(notes: snapshot.noteURLs, root: snapshot.root),
+                                                       images: resources, syntaxHighlighter: resources, latex: resources)
+        if appliedSnapshot?.documentID == snapshot.documentID, engine.sourceText != snapshot.text {
+            textView.undoManager?.removeAllActions()
+        }
+        let binding: Binding<String>
+        if let document {
+            binding = Binding(get: { [weak document] in document?.text ?? snapshot.text },
+                set: { [weak self, weak document] text in
+                    guard let document else { return }
+                    document.edit(text)
+                    document.editor.synchronize(text)
+                    guard let self, self.document === document, var next = requested else { return }
+                    next.text = text
+                    show(next, document: document)
+                })
+        } else { binding = .constant(snapshot.text) }
+        let wrapper = NativeTextViewWrapper(text: binding, configuration: configuration,
+            fontName: snapshot.theme.bodyFont(size: snapshot.theme.bodySize).fontName,
+            fontSize: snapshot.theme.bodySize, documentId: snapshot.documentID,
+            isEditable: snapshot.settings.allowsEditing && document != nil)
+        wrapper.updateAppKitView(scrollView, coordinator: engine)
+        textView.allowsUndo = textView.isEditable
         self.recipe = recipe
+        // Markdown stays in place except for the engine's shortened wiki links.
+        let anchors = recipe.anchors.compactMap { anchor -> MarkdownAnchor? in
+            guard let displayed = engine.previewRange(fromSourceRange: anchor.source) else { return nil }
+            return MarkdownAnchor(source: anchor.source, rendered: displayed, heading: anchor.heading)
+        }
+        let result = MarkdownComposition(text: NSAttributedString(attributedString: textView.textStorage!),
+            anchors: anchors, attachments: [])
         self.composition = result
         appliedSnapshot = snapshot
         message = recipe.diagnostics.isEmpty ? nil : Array(Set(recipe.diagnostics)).sorted().joined(separator: " · ")
-        textView.textContainerInset = snapshot.theme.inset
-        textView.textStorage?.beginEditing()
-        textView.textStorage?.setAttributedString(result.text)
-        textView.textStorage?.endEditing()
-        let translated = Self.translateSelection(selection, from: oldComposition, to: result)
-        textView.setSelectedRange(translated)
-        resizeAttachments()
-        textView.layoutManager?.ensureLayout(forBoundingRect: textView.visibleRect, in: textView.textContainer!)
+        textView.setSelectedRange(nativeEdit ? selection : Self.translateSelection(selection, from: oldComposition, to: result))
         if let oldAnchor { restore(position: oldAnchor) }
-        else { MarkdownScrollSync.scroll(scrollView, to: 0) }
-        scrollSync?.contentDidChange()
+        else if !nativeEdit { MarkdownScrollSync.scroll(scrollView, to: 0) }
+        if nativeEdit { scrollSync?.synchronize(from: .preview) }
+        else { scrollSync?.contentDidChange() }
         if focusDocumentID == snapshot.documentID, let heading = pendingHeading { pendingHeading = nil; navigateHeading(heading) }
         focusIfNeeded()
     }
+
     static func translateSelection(_ selection: NSRange, from old: MarkdownComposition?, to new: MarkdownComposition) -> NSRange {
         func translate(_ offset: Int) -> Int {
             guard let old, let anchor = old.anchors.filter({ $0.rendered.location <= offset && $0.rendered.upperBound >= offset }).min(by: { $0.rendered.length < $1.rendered.length }),
@@ -193,24 +211,32 @@ import Observation
         }
         return (new.text.string as NSString).rangeOfComposedCharacterSequences(for: range)
     }
-    func resizeAttachments() {
-        guard let composition else { return }
-        let width = textView.bounds.width - 2 * textView.textContainerInset.width
-        for attachment in composition.attachments { attachment.resize(width: width) }
-        guard !composition.attachments.isEmpty else { return }
-        for range in composition.attachmentRanges {
-            textView.layoutManager?.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
-        }
-        textView.needsDisplay = true
-    }
     func focusIfNeeded() {
         guard let focusDocumentID, appliedSnapshot?.documentID == focusDocumentID, !isRendering, requested == appliedSnapshot else { return }
         // Match the editor: let SwiftUI finish mounting and updating its focus state.
         Task { @MainActor [weak self] in
             guard let self, self.focusDocumentID == focusDocumentID, appliedSnapshot?.documentID == focusDocumentID,
                   !isRendering, let window = textView.window else { return }
-            if window.makeFirstResponder(textView) { self.focusDocumentID = nil }
+            if window.makeFirstResponder(textView) {
+                self.focusDocumentID = nil
+                self.placeCaretAfterNewNoteTitle()
+            }
         }
+    }
+
+    /// A note still holding just the new-note template opens ready to type over its title,
+    /// the same as the source editor does. The caret goes at the end of the first line of
+    /// what the text view actually holds. That is the source text today, markers included
+    /// and merely shrunk out of sight, but reading the line back keeps this correct if the
+    /// preview ever stops carrying them.
+    private func placeCaretAfterNewNoteTitle() {
+        guard appliedSnapshot?.text == NoteTitle.template else { return }
+        let rendered = textView.string as NSString
+        let firstBreak = rendered.range(of: "\n")
+        textView.setSelectedRange(NSRange(
+            location: firstBreak.location == NSNotFound ? rendered.length : firstBreak.location,
+            length: 0
+        ))
     }
     func navigateHeading(_ heading: String) {
         guard let anchor = composition?.anchors.first(where: { $0.heading == heading }) else {
@@ -218,10 +244,6 @@ import Observation
         }
         scroll(to: anchor.rendered.location, fraction: 0)
         scrollSync?.synchronize(from: .preview)
-    }
-    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
-        followLink((link as? URL)?.absoluteString ?? (link as? String ?? ""))
-        return true
     }
     func followLink(_ target: String) {
         guard let snapshot = appliedSnapshot, requested == snapshot, isCurrent(snapshot) else {
@@ -242,31 +264,16 @@ import Observation
     }
 }
 
-final class PreviewTextView: NSTextView {
-    var onResize: (() -> Void)?
-    override func setFrameSize(_ newSize: NSSize) {
-        let changed = abs(frame.width - newSize.width) > 0.5
-        super.setFrameSize(newSize)
-        if changed { onResize?() }
-    }
-    override func writeSelection(to pboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool {
-        guard let storage = textStorage else { return false }
-        let selected = NSMutableAttributedString(attributedString: storage.attributedSubstring(from: selectedRange()))
-        var alternatives: [(NSRange, String)] = []
-        selected.enumerateAttribute(.previewAlternative, in: NSRange(location: 0, length: selected.length)) { value, range, _ in
-            if let alternative = value as? String { alternatives.append((range, alternative)) }
-        }
-        for (range, alternative) in alternatives.reversed() { selected.replaceCharacters(in: range, with: alternative) }
-        pboard.clearContents()
-        pboard.setString(selected.string, forType: .string)
-        if let rtf = try? selected.data(from: NSRange(location: 0, length: selected.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]) {
-            pboard.setData(rtf, forType: .rtf)
-        }
-        return true
-    }
-}
-
 struct MarkdownPreviewView: NSViewRepresentable {
+    @AppStorage(PreviewSettings.autoClosePairsKey) private var autoClosePairs = true
+    @AppStorage(PreviewSettings.allowsEditingKey) private var allowsEditing = true
+    @AppStorage(PreviewSettings.showsMarkdownMarkersKey) private var showsMarkdownMarkers = false
+    @AppStorage(PreviewSettings.bodySizeKey) private var bodySize = PreviewTheme.defaultBodySize
+    @AppStorage(PreviewSettings.marginKey) private var margin = PreviewTheme.defaultMargin
+    @AppStorage(PreviewSettings.verticalMarginKey) private var verticalMargin = PreviewTheme.defaultVerticalMargin
+    @AppStorage(PreviewSettings.fontNameKey) private var fontName = ""
+    @AppStorage(PreviewSettings.fontFamilyKey) private var fontFamily = ""
+    @AppStorage(PreviewSettings.lineHeightKey) private var lineHeight = PreviewTheme.defaultLineHeight
     let session: MarkdownPreviewSession
     let snapshot: PreviewSnapshot
     let document: NoteDocument
@@ -275,6 +282,8 @@ struct MarkdownPreviewView: NSViewRepresentable {
     func makeNSView(context: Context) -> PreviewContainerView { PreviewContainerView() }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: PreviewContainerView, context: Context) -> CGSize? { proposal.replacingUnspecifiedDimensions() }
     func updateNSView(_ container: PreviewContainerView, context: Context) {
+        // An outgoing representable can update after its replacement has taken the scroll view.
+        guard container.session !== session || session.scrollView.superview === container else { return }
         container.session = session
         let scroll = session.scrollView
         if scroll.superview !== container {
@@ -288,6 +297,9 @@ struct MarkdownPreviewView: NSViewRepresentable {
         }
         var snapshot = snapshot
         snapshot.scale = Double(container.window?.backingScaleFactor ?? 2)
+        snapshot.settings = PreviewSettings(autoClosePairs: autoClosePairs, allowsEditing: allowsEditing, showsMarkdownMarkers: showsMarkdownMarkers)
+        snapshot.theme = PreviewTheme(bodySize: bodySize, margin: margin, verticalMargin: verticalMargin,
+                                      fontName: fontName, fontFamily: fontFamily, lineHeight: lineHeight)
         session.show(snapshot, document: document)
         if split, session.scrollSync?.editor !== document.editor {
             session.scrollSync?.disconnect()
@@ -307,24 +319,4 @@ final class PreviewContainerView: NSView {
     weak var session: MarkdownPreviewSession?
     override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); session?.focusIfNeeded() }
     override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); session?.retry() }
-}
-
-
-private final class PreviewScrollView: NSScrollView {
-    override func tile() {
-        super.tile()
-        guard let view = documentView as? NSTextView else { return }
-        view.minSize = NSSize(width: 0, height: contentView.bounds.height)
-        if abs(view.frame.width - contentView.bounds.width) > 0.5 {
-            view.setFrameSize(NSSize(width: contentView.bounds.width, height: max(view.frame.height, contentView.bounds.height)))
-        }
-    }
-}
-
-private final class PreviewClipView: NSClipView {
-    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
-        var bounds = super.constrainBoundsRect(proposedBounds)
-        bounds.origin.x = 0
-        return bounds
-    }
 }

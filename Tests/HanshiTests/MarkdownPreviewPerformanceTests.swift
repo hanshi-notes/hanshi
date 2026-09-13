@@ -72,7 +72,7 @@ extension AppKitWindowTests {
             window.contentView?.layoutSubtreeIfNeeded(); window.displayIfNeeded()
             let duration = start.duration(to: clock.now).components
             durations.append(Double(duration.seconds) + Double(duration.attoseconds) / 1e18)
-            #expect(session.textView.string.hasSuffix("Edit \(index)\n"))
+            #expect(session.textView.string.hasSuffix("Edit \(index)"))
         }
         let warm = durations.dropFirst().sorted()
         print("PREVIEW_UPDATE bytes=\(text.utf8.count) cold=\(durations[0]) warm_p95=\(warm.last!) warm_median=\(warm[warm.count / 2]) samples=\(durations)")
