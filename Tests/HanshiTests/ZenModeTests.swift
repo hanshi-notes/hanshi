@@ -177,12 +177,7 @@ extension AppKitWindowTests {
         try await zenEventually { control.sidebarVisible == false }
         try await Task.sleep(for: .milliseconds(200))
         host.layoutSubtreeIfNeeded(); window.displayIfNeeded()
-        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil,
-            pixelsWide: Int(host.bounds.width), pixelsHigh: Int(host.bounds.height),
-            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
-        let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
-        try #require(host.layer).render(in: context.cgContext)
+        let bitmap = try layerBitmap(host)
         func leftmostInk(rows: Range<Int>) -> Int? {
             (0..<300).first { x in
                 rows.contains { y in (bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB)?.brightnessComponent ?? 1) < 0.5 }
@@ -278,7 +273,7 @@ private struct ZenBindingProbe: View {
     }
 }
 
-@MainActor private func librarySplit(in view: NSView) -> NSSplitView? {
+@MainActor func librarySplit(in view: NSView) -> NSSplitView? {
     if let split = view as? NSSplitView { return split }
     return view.subviews.lazy.compactMap { librarySplit(in: $0) }.first
 }
@@ -295,7 +290,7 @@ private struct ZenBindingProbe: View {
 }
 
 /// A window set up like the app's: hidden title bar, with the library lifecycle attached.
-@MainActor private func appWindow(_ host: NSView) -> (NSWindow, LibraryLifecycle) {
+@MainActor func appWindow(_ host: NSView) -> (NSWindow, LibraryLifecycle) {
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1020, height: 650),
         styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
     window.titleVisibility = .hidden
@@ -305,4 +300,15 @@ private struct ZenBindingProbe: View {
     lifecycle.attach(to: window)
     window.contentView = host; window.makeKeyAndOrderFront(nil)
     return (window, lifecycle)
+}
+
+/// The view's composed layers at one pixel per point. Rows run bottom-up.
+@MainActor func layerBitmap(_ view: NSView) throws -> NSBitmapImageRep {
+    let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil,
+        pixelsWide: Int(view.bounds.width), pixelsHigh: Int(view.bounds.height),
+        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+        colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+    let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
+    try #require(view.layer).render(in: context.cgContext)
+    return bitmap
 }

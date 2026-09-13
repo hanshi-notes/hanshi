@@ -7,6 +7,56 @@ import Testing
 @Suite(.serialized) struct AppKitWindowTests {}
 
 extension AppKitWindowTests {
+    @Test(arguments: SidebarTheme.allCases) @MainActor
+    func sidebarPlusButtonCreatesANotebookAtTheLibraryRoot(theme: SidebarTheme) async throws {
+        _ = NSApplication.shared
+        let fixture = try PreviewResourceFixture(); defer { fixture.remove() }
+        _ = try await LibraryFiles(root: fixture.root).createNotebook(named: "Writing")
+        let store = NoteStore(root: fixture.root)
+        await store.refresh()
+        let writing = try #require(store.notebooks.first)
+        let preferences = TestPreferences(); defer { preferences.remove() }
+        preferences.defaults.set(theme.rawValue, forKey: SidebarTheme.key)
+        // A selected notebook must not become the new notebook's parent.
+        preferences.defaults.set(writing.id, forKey: Notebook.selectionKey)
+        let host = NSHostingView(rootView: LibraryScreen(defaults: preferences.defaults).environment(store))
+        let (window, lifecycle) = appWindow(host)
+        defer { window.contentView = nil; window.close(); withExtendedLifetime(lifecycle) {} }
+        host.layoutSubtreeIfNeeded()
+        let sidebar = try #require(librarySplit(in: host)).arrangedSubviews[0]
+        // Like the bar's buttons, the "+" is outlined while its surface blends with the colour behind
+        // it, so it weighs the same as the hide sidebar button instead of reading as a solid block.
+        try await Task.sleep(for: .milliseconds(100))
+        host.layoutSubtreeIfNeeded(); window.displayIfNeeded()
+        let bitmap = try layerBitmap(host)
+        let buttonLeft = sidebar.bounds.width - BarMetrics.margin - BarMetrics.buttonWidth
+        func brightness(atX x: Double) -> CGFloat {
+            bitmap.colorAt(x: Int(x), y: bitmap.pixelsHigh - Int(BarMetrics.height / 2))?
+                .usingColorSpace(.deviceRGB)?.brightnessComponent ?? 0
+        }
+        let background = brightness(atX: buttonLeft - 20)
+        let edge = (-2...2).map { abs(brightness(atX: buttonLeft + Double($0)) - background) }.max() ?? 0
+        #expect(edge > 0.05, "On the \(theme) sidebar, the + button has no border")
+        #expect(abs(brightness(atX: buttonLeft + 4) - background) < 0.1, "On the \(theme) sidebar, the + button's surface stands out")
+        try clickRow(panel: 0, top: BarMetrics.height / 2,
+                     x: sidebar.bounds.width - BarMetrics.margin - BarMetrics.buttonWidth / 2, in: host, window: window)
+        try await eventually { window.attachedSheet != nil }
+        let sheet = try #require(window.attachedSheet?.contentView)
+        func nameField(in view: NSView) -> NSTextField? {
+            if let field = view as? NSTextField, field.isEditable { return field }
+            return view.subviews.lazy.compactMap { nameField(in: $0) }.first
+        }
+        let field = try #require(nameField(in: sheet))
+        #expect(field.stringValue.isEmpty)
+        #expect(sheet.window?.makeFirstResponder(field) == true)
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        editor.insertText("Ideas", replacementRange: NSRange(location: 0, length: 0))
+        try await eventually { field.stringValue == "Ideas" }
+        editor.insertNewline(nil)
+        try await eventually { store.notebooks.contains { $0.name == "Ideas" } }
+        #expect(store.notebooks.first { $0.name == "Ideas" }?.path(in: store.files.root) == "Ideas")
+    }
+
     @Test @MainActor func notebookDisclosureHidesRowsAndPreservesTheOpenNote() async throws {
         _ = NSApplication.shared
         let fixture = try PreviewResourceFixture(); defer { fixture.remove() }

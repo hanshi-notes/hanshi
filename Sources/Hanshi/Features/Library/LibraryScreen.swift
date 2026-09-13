@@ -179,7 +179,16 @@ struct LibraryScreen: View {
 
     private var sidebar: some View {
         VStack(spacing: 0) {
-            Color.clear.frame(height: BarMetrics.height)
+            HStack {
+                Spacer()
+                BarButton(title: "New Notebook", icon: "plus", color: sidebarTheme.foreground, action: showNewNotebook)
+                    // A white surface over the sidebar colour would outweigh the bar's buttons.
+                    .barControl(surface: sidebarTheme.foreground.opacity(0.06), border: sidebarTheme.foreground.opacity(0.25))
+                    .help("New Notebook (⇧⌘N)")
+                    .disabled(store.isBusy)
+            }
+            .padding(.horizontal, BarMetrics.margin)
+            .frame(height: BarMetrics.height)
             ScrollView {
                 LazyVStack(spacing: 0) {
                     Button { selectNotebook("all") } label: {

@@ -30,12 +30,13 @@ struct BarButton: View {
     let title: String
     let icon: String
     var active = false
+    var color = BarMetrics.iconColor
     var action: (() -> Void)?
 
     var body: some View {
         Button { action?() } label: {
             BarIconView(icon)
-                .foregroundStyle(active ? .orange : BarMetrics.iconColor)
+                .foregroundStyle(active ? .orange : color)
                 .frame(width: BarMetrics.buttonWidth, height: BarMetrics.controlHeight)
                 .contentShape(Rectangle())
         }
@@ -47,9 +48,10 @@ struct BarButton: View {
 }
 
 extension View {
-    func barControl(cornerRadius: Double = BarMetrics.cornerRadius) -> some View {
+    func barControl(cornerRadius: Double = BarMetrics.cornerRadius, surface: Color = .white,
+                    border: Color = .black.opacity(0.14)) -> some View {
         frame(height: BarMetrics.controlHeight)
-            .modifier(BarControlBackground(cornerRadius: cornerRadius))
+            .modifier(BarControlBackground(cornerRadius: cornerRadius, surface: surface, border: border))
     }
 
     @ViewBuilder func barGlassContainer() -> some View {
@@ -64,14 +66,16 @@ extension View {
 private struct BarControlBackground: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     let cornerRadius: Double
+    let surface: Color
+    let border: Color
 
     @ViewBuilder func body(content: Content) -> some View {
         if #available(macOS 26, *), !reduceTransparency {
             content.glassEffect(.regular, in: .capsule)
         } else {
             content
-                .background(.white, in: RoundedRectangle(cornerRadius: cornerRadius))
-                .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(.black.opacity(0.14)))
+                .background(surface, in: RoundedRectangle(cornerRadius: cornerRadius))
+                .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(border))
         }
     }
 }
