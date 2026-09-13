@@ -7,6 +7,7 @@ struct NoteEditorContentView: View {
     let mode: ContentMode
     var libraryID: UUID? = nil
     var resourceGeneration = 0
+    var noteURLs: [URL] = []
     @State var preview = MarkdownPreviewSession()
     @State private var confirmingReload = false
 
@@ -54,7 +55,7 @@ struct NoteEditorContentView: View {
             }
             MarkdownPreviewView(session: preview, snapshot: PreviewSnapshot(
                 library: libraryID ?? preview.identity, documentID: document.id, text: document.text,
-                url: document.url, root: files.root, resources: resourceGeneration
+                url: document.url, root: files.root, resources: resourceGeneration, noteURLs: noteURLs
             ), document: document, split: mode == .split)
         }
     }

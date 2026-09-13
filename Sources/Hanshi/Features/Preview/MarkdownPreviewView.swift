@@ -149,7 +149,8 @@ import MarkdownEngine
         var configuration = snapshot.theme.engineConfiguration
         configuration.lists.autoClosePairsEnabled = snapshot.settings.autoClosePairs
         configuration.showsMarkdownMarkersWhileEditing = snapshot.settings.showsMarkdownMarkers
-        configuration.services = MarkdownEditorServices(images: resources, syntaxHighlighter: resources, latex: resources)
+        configuration.services = MarkdownEditorServices(wikiLinks: WikiLinkIndex(notes: snapshot.noteURLs, root: snapshot.root),
+                                                       images: resources, syntaxHighlighter: resources, latex: resources)
         if appliedSnapshot?.documentID == snapshot.documentID, engine.sourceText != snapshot.text {
             textView.undoManager?.removeAllActions()
         }

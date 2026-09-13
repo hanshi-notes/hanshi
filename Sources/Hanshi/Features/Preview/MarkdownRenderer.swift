@@ -14,6 +14,7 @@ nonisolated struct PreviewSnapshot: Equatable, Sendable {
     var settings = PreviewSettings()
     var resources = 0
     var scale = 2.0
+    var noteURLs: [URL] = []
 }
 
 nonisolated struct MarkdownLineIndex: Sendable {

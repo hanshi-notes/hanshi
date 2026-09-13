@@ -469,7 +469,7 @@ struct LibraryScreen: View {
     @ViewBuilder private var documentContent: some View {
         if let document {
             NoteEditorContentView(document: document, files: store.files, mode: mode,
-                                  libraryID: store.sessionID, resourceGeneration: store.resourceGeneration,
+                                  libraryID: store.sessionID, resourceGeneration: store.resourceGeneration, noteURLs: store.notes.map(\.url),
                                   preview: previewSession)
                 .onAppear { previewSession.openNote = openPreviewNote }
         } else if noteID != nil {

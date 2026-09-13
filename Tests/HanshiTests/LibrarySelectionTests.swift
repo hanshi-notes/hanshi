@@ -491,3 +491,41 @@ extension AppKitWindowTests {
         #expect(window.sheets.isEmpty)
     }
 }
+
+
+extension AppKitWindowTests {
+    @Test(arguments: ["Target", "Work/Target", "Work/Target.md", "Work/Child/Target"])
+    @MainActor func wikiLinksOpenCatalogNotesWithoutChangingTheSource(target: String) async throws {
+        _ = NSApplication.shared
+        let library = TestLibrary()
+        let source = try await library.note("[[\(target)]]\n")
+        let work = try await library.files.createNotebook(named: "Work")
+        let folder = target.contains("Child")
+            ? try await library.files.createNotebook(named: "Child", in: work) : work
+        let targetURL = folder.appendingPathComponent("Target.md")
+        try Data("# Destination\n".utf8).write(to: targetURL)
+        let store = NoteStore(root: library.root)
+        await store.refresh()
+        let preferences = TestPreferences(); defer { preferences.remove() }
+        preferences.defaults.set(false, forKey: PreviewSettings.allowsEditingKey)
+        let host = NSHostingView(rootView: LibraryScreen(mode: .preview, noteID: source.id, defaults: preferences.defaults)
+            .environment(store).defaultAppStorage(preferences.defaults))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 650),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host; window.orderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        try await eventually { previewView(in: host)?.string.contains(target) == true }
+        let preview = try #require(previewView(in: host))
+        let session = try #require(previewSession(in: host))
+        try await eventually { !session.isRendering }
+        let index = (preview.string as NSString).range(of: "Target").location + 2
+        let link = try #require(preview.textStorage?.attribute(.link, at: index, effectiveRange: nil),
+                                "A wiki link must be navigable, not just formatted")
+        #expect(session.engine.textView(preview, clickedOnLink: link, at: index))
+        try await eventually { previewView(in: host)?.string.contains("Destination") == true }
+        #expect(store.documents[source.id]?.text == "[[\(target)]]\n")
+        #expect(!store.hasUnsavedChanges)
+        #expect(try String(contentsOf: source.url, encoding: .utf8) == "[[\(target)]]\n")
+    }
+}
