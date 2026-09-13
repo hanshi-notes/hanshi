@@ -9,6 +9,10 @@ enum BarMetrics {
     static let iconSize = 14.0
     static let iconBox = 18.0
     static let iconColor = Color.black
+    /// Leading room for the close, minimize and zoom buttons over the hidden title bar.
+    // ponytail: fixed inset clears macOS 15's centred buttons, which end at 66 pt; read
+    // standardWindowButton(.zoomButton) if a macOS release moves them further right.
+    static let windowControlsInset = 68.0
 }
 
 // Font sizing preserves each symbol's optical size; semibold matches Notable's stroke weight.

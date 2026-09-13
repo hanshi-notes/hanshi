@@ -7,7 +7,7 @@ import Testing
     _ = NSApplication.shared
     let symbols = ["square.and.arrow.down", "highlighter", "tag.fill", "paperclip", "star", "pin.fill",
                    "trash.fill", "square.and.arrow.up", "arrow.up.forward.square", "plus",
-                   "magnifyingglass", "doc.text.fill", "list.bullet.rectangle.fill"]
+                   "magnifyingglass", "doc.text.fill", "list.bullet.rectangle.fill", "sidebar.left"]
     var largestSides: [Double] = []
     for symbol in symbols {
         let button = BarIconView(symbol)

@@ -71,7 +71,8 @@ struct LibraryScreen: View {
                 }
                 if !isZen {
                     noteList
-                        .frame(minWidth: 180, idealWidth: geometry.size.width * 0.272, maxWidth: 560)
+                        .frame(minWidth: sidebarVisible ? 180 : 180 + BarMetrics.windowControlsInset,
+                               idealWidth: geometry.size.width * 0.272, maxWidth: 560)
                         .ignoresSafeArea(.container, edges: .top)
                 }
                 content
@@ -299,6 +300,11 @@ struct LibraryScreen: View {
     private var noteList: some View {
         VStack(spacing: 0) {
             HStack(spacing: BarMetrics.margin) {
+                BarButton(title: sidebarVisible ? "Hide Notebook Sidebar" : "Show Notebook Sidebar", icon: "sidebar.left") {
+                    layoutBinding($sidebarVisible).wrappedValue.toggle()
+                }
+                .barControl()
+                .help(sidebarVisible ? "Hide Notebook Sidebar (⌃⌘S)" : "Show Notebook Sidebar (⌃⌘S)")
                 HStack(spacing: 0) {
                     TextField("Search…", text: $query)
                         .textFieldStyle(.plain)
@@ -324,6 +330,8 @@ struct LibraryScreen: View {
                 .disabled(store.isBusy)
             }
             .barGlassContainer()
+            // Without the notebook column, this bar is the one under the window's buttons.
+            .padding(.leading, sidebarVisible ? 0 : BarMetrics.windowControlsInset)
             .padding(.horizontal, BarMetrics.margin)
             .frame(height: BarMetrics.height)
             .background(Color(white: 0.97))
@@ -452,7 +460,9 @@ struct LibraryScreen: View {
                 .background(Color(white: 0.97))
                 .overlay(alignment: .bottom) { Divider() }
             }
+            // Zen hides the bar; the document keeps its place so it stays clear of the window's buttons.
             documentContent
+                .padding(.top, isZen ? BarMetrics.height : 0)
         }
     }
 

@@ -117,7 +117,20 @@ extension AppKitWindowTests {
             ? [(false, false), (true, false), (false, false), (false, true)]
             : [(true, true), (false, true), (true, true), (false, true)]
         for (expectedZen, expectedSidebar) in steps {
-            if control.sidebarVisible != expectedSidebar { control.toggleSidebar?() }
+            if control.sidebarVisible != expectedSidebar {
+                // Click the visible sidebar button, including when the notebook column is hidden.
+                let column = split.arrangedSubviews[control.sidebarVisible == true ? 1 : 0]
+                let inset = control.sidebarVisible == true ? 0 : BarMetrics.windowControlsInset
+                let point = NSPoint(x: BarMetrics.margin + inset + BarMetrics.buttonWidth / 2,
+                                    y: column.isFlipped ? BarMetrics.height / 2 : column.bounds.height - BarMetrics.height / 2)
+                let location = column.convert(point, to: nil)
+                for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                    let event = try #require(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
+                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                        context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+                    window.sendEvent(event)
+                }
+            }
             if control.current != expectedZen { control.toggle?() }
             try await zenEventually { control.current == expectedZen && control.sidebarVisible == expectedSidebar }
             try await Task.sleep(for: .milliseconds(100))
@@ -146,6 +159,94 @@ extension AppKitWindowTests {
         #expect(undo.canUndo)
         undo.undo()
         #expect(document.text == original)
+    }
+
+    @Test @MainActor func windowButtonsSitCentredInTheBarClearOfTheSidebarButton() async throws {
+        _ = NSApplication.shared
+        let fixture = try PreviewResourceFixture(); defer { fixture.remove() }
+        let store = NoteStore(root: fixture.root)
+        await store.refresh()
+        let control = ZenTestControl()
+        let preferences = TestPreferences(); defer { preferences.remove() }
+        let host = NSHostingView(rootView: LibraryScreen(defaults: preferences.defaults).environment(store)
+            .overlay { ZenBindingProbe(control: control).frame(width: 0, height: 0) })
+        let (window, lifecycle) = appWindow(host)
+        defer { window.contentView = nil; window.close(); withExtendedLifetime(lifecycle) {} }
+        try await zenEventually { control.sidebarVisible == true }
+        control.toggleSidebar?()
+        try await zenEventually { control.sidebarVisible == false }
+        try await Task.sleep(for: .milliseconds(200))
+        host.layoutSubtreeIfNeeded(); window.displayIfNeeded()
+        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil,
+            pixelsWide: Int(host.bounds.width), pixelsHigh: Int(host.bounds.height),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
+        try #require(host.layer).render(in: context.cgContext)
+        func leftmostInk(rows: Range<Int>) -> Int? {
+            (0..<300).first { x in
+                rows.contains { y in (bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB)?.brightnessComponent ?? 1) < 0.5 }
+            }
+        }
+        // The layer renders bottom-up, so the bar occupies the last rows. With the notebook
+        // column hidden, the sidebar button is the leftmost ink in it.
+        let icon = try #require(leftmostInk(rows: (bitmap.pixelsHigh - Int(BarMetrics.height))..<bitmap.pixelsHigh))
+        let zoom = try #require(window.standardWindowButton(.zoomButton))
+        let controls = host.convert(zoom.bounds, from: zoom)
+        #expect(Double(icon) > controls.maxX, "The sidebar button starts at \(icon) pt, under window controls ending at \(controls.maxX) pt")
+        #expect(abs(controls.midY - BarMetrics.height / 2) <= 1,
+                "The window buttons are centred at \(controls.midY) pt instead of in the \(BarMetrics.height) pt bar")
+        // The bar under the window's title area still takes clicks.
+        let location = host.convert(NSPoint(x: BarMetrics.margin + BarMetrics.windowControlsInset + BarMetrics.buttonWidth / 2,
+                                            y: BarMetrics.height / 2), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try #require(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            window.sendEvent(event)
+        }
+        try await zenEventually { control.sidebarVisible == true }
+        // AppKit lays the title bar out again on resize, and the buttons must stay centred.
+        window.setContentSize(NSSize(width: 1300, height: 720))
+        host.layoutSubtreeIfNeeded(); window.displayIfNeeded()
+        let resized = host.convert(zoom.bounds, from: zoom)
+        #expect(abs(resized.midY - BarMetrics.height / 2) <= 1, "After resizing, the window buttons are centred at \(resized.midY) pt")
+    }
+
+    @Test(arguments: Hanshi.ContentMode.allCases) @MainActor
+    func zenDocumentStartsBelowTheWindowButtons(mode: Hanshi.ContentMode) async throws {
+        _ = NSApplication.shared
+        let fixture = try PreviewResourceFixture(); defer { fixture.remove() }
+        let folder = fixture.root.appendingPathComponent("Notes")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("# Zen document\n\nText under the window buttons.\n".utf8).write(to: folder.appendingPathComponent("Zen.md"))
+        let store = NoteStore(root: fixture.root)
+        await store.refresh()
+        let note = try #require(store.notes.first)
+        await store.open(note)
+        let document = try #require(store.documents[note.id])
+        let control = ZenTestControl()
+        let preferences = TestPreferences(); defer { preferences.remove() }
+        let host = NSHostingView(rootView: LibraryScreen(mode: mode, noteID: note.id, defaults: preferences.defaults)
+            .environment(store).overlay { ZenBindingProbe(control: control).frame(width: 0, height: 0) })
+        let (window, lifecycle) = appWindow(host)
+        defer { window.contentView = nil; window.close(); withExtendedLifetime(lifecycle) {} }
+        try await zenEventually { control.current == false }
+        control.toggle?()
+        try await zenEventually { control.current == true }
+        try await Task.sleep(for: .milliseconds(100))
+        host.layoutSubtreeIfNeeded()
+        let zoom = try #require(window.standardWindowButton(.zoomButton))
+        let buttons = host.convert(zoom.bounds, from: zoom)
+        var panels: [NSView] = []
+        if mode != .preview { panels.append(document.editor.scrollView) }
+        if mode != .source { panels.append(try #require(zenPreview(in: host)?.enclosingScrollView)) }
+        for panel in panels {
+            let top = host.convert(panel.bounds, from: panel).minY
+            #expect(top >= buttons.maxY, "In \(mode), a panel starts at \(top) pt, above the window buttons ending at \(buttons.maxY) pt")
+            // Where the bar ends outside Zen, so the text does not jump when Zen toggles.
+            #expect(abs(top - BarMetrics.height) < 1, "In \(mode), a panel starts at \(top) pt instead of \(BarMetrics.height) pt")
+        }
     }
 }
 
@@ -191,4 +292,17 @@ private struct ZenBindingProbe: View {
     let deadline = ContinuousClock.now.advanced(by: .seconds(3))
     while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
     try #require(condition(), sourceLocation: sourceLocation)
+}
+
+/// A window set up like the app's: hidden title bar, with the library lifecycle attached.
+@MainActor private func appWindow(_ host: NSView) -> (NSWindow, LibraryLifecycle) {
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1020, height: 650),
+        styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+    window.titleVisibility = .hidden
+    window.titlebarAppearsTransparent = true
+    window.isReleasedWhenClosed = false
+    let lifecycle = LibraryLifecycle()
+    lifecycle.attach(to: window)
+    window.contentView = host; window.makeKeyAndOrderFront(nil)
+    return (window, lifecycle)
 }

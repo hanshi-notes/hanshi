@@ -19,6 +19,8 @@ Clone with `git clone --recurse-submodules`. In an existing checkout, `git submo
 
 ## Committing
 
+**Never create or amend a commit without the user's explicit permission for those changes.** This applies to both repositories. Permission to implement a change is not permission to commit it, and permission for an earlier commit does not authorize later commits.
+
 A change to the engine is a commit of the **engine** repository, never of the app. Work in this order:
 
 1. Commit inside `Vendor/swift-markdown-engine`.

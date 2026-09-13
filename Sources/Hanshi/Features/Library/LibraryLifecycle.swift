@@ -13,6 +13,43 @@ final class LibraryLifecycle: NSObject, NSApplicationDelegate {
         let proxy = WindowDelegateProxy(previous: window.delegate, lifecycle: self)
         windowDelegate = proxy
         window.delegate = proxy
+        // AppKit lays the title bar out again when the window shows, resizes and leaves full screen.
+        let windowNames = [NSWindow.didResizeNotification, NSWindow.didExitFullScreenNotification]
+        for name in windowNames + [NSView.frameDidChangeNotification] {
+            NotificationCenter.default.removeObserver(self, name: name, object: nil)
+        }
+        for name in windowNames {
+            NotificationCenter.default.addObserver(self, selector: #selector(titlebarChanged), name: name, object: window)
+        }
+        if let close = window.standardWindowButton(.closeButton), let container = close.superview?.superview {
+            for view in [close, container] {
+                NotificationCenter.default.addObserver(self, selector: #selector(titlebarChanged),
+                                                       name: NSView.frameDidChangeNotification, object: view)
+            }
+        }
+        centreWindowButtons()
+    }
+
+    @objc private func titlebarChanged(_ notification: Notification) { centreWindowButtons() }
+
+    /// Centres the close, minimize and zoom buttons in the bars, where a compact toolbar puts them.
+    // ponytail: moves AppKit's private title bar views because a real toolbar swallows clicks on
+    // the bars beneath it. Revisit if a macOS release stops honouring these frames.
+    private func centreWindowButtons() {
+        guard let window, !window.styleMask.contains(.fullScreen),
+              let close = window.standardWindowButton(.closeButton),
+              let miniaturize = window.standardWindowButton(.miniaturizeButton),
+              let container = close.superview?.superview, let frame = container.superview else { return }
+        let height = BarMetrics.height
+        let titlebar = NSRect(x: container.frame.minX, y: frame.bounds.height - height, width: container.frame.width, height: height)
+        if container.frame != titlebar { container.frame = titlebar }
+        let margin = (height - close.frame.height) / 2
+        let spacing = miniaturize.frame.minX - close.frame.minX
+        for (index, kind) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
+            // AppKit sets them one point right of the top margin over a compact toolbar.
+            let origin = NSPoint(x: margin + 1 + Double(index) * spacing, y: margin)
+            if let button = window.standardWindowButton(kind), button.frame.origin != origin { button.setFrameOrigin(origin) }
+        }
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
