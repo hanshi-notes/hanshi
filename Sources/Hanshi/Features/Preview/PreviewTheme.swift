@@ -12,7 +12,7 @@ nonisolated struct PreviewTheme: Equatable, Sendable {
     static let lineHeightRange = 1.0...2.5
 
     var bodySize: Double
-    var codeSize: Double
+    var codeSize: Double { bodySize }
     var inset: NSSize
     /// PostScript name of the reading font; empty means the system font.
     var fontName: String
@@ -23,9 +23,7 @@ nonisolated struct PreviewTheme: Equatable, Sendable {
     /// Multiple of the font's natural line height, like the editor's own control.
     var lineHeight: Double
 
-    /// Code size still follows the body size: one control for both keeps code and prose in
-    /// proportion, and nobody has asked to set it apart. The defaults reproduce the
-    /// hand-tuned 17/14, 38/14 and the leading that was hard-coded before.
+    /// Code and prose share one text-size setting.
     init(bodySize: Double = defaultBodySize,
          margin: Double = defaultMargin,
          verticalMargin: Double = defaultVerticalMargin,
@@ -34,7 +32,6 @@ nonisolated struct PreviewTheme: Equatable, Sendable {
          lineHeight: Double = defaultLineHeight) {
         let body = Self.clampedBodySize(bodySize)
         self.bodySize = body
-        self.codeSize = (body * 0.82).rounded()
         self.inset = NSSize(width: Self.clampedMargin(margin),
                             height: Self.clampedVerticalMargin(verticalMargin))
         self.fontName = fontName
@@ -146,8 +143,10 @@ nonisolated final class PreviewCodeBlock: NSTextTableBlock {
         table.setValue(100, type: .percentageValueType, for: .width)
         super.init(table: table, startingRow: 0, rowSpan: 1, startingColumn: 0, columnSpan: 1)
         setWidth(16, type: .absoluteValueType, for: .padding)
-        setWidth(12, type: .absoluteValueType, for: .margin, edge: .minY)
-        setWidth(12, type: .absoluteValueType, for: .margin, edge: .maxY)
+        setWidth(8, type: .absoluteValueType, for: .padding, edge: .minY)
+        setWidth(8, type: .absoluteValueType, for: .padding, edge: .maxY)
+        setWidth(6, type: .absoluteValueType, for: .margin, edge: .minY)
+        setWidth(6, type: .absoluteValueType, for: .margin, edge: .maxY)
         backgroundColor = NSColor(white: 0.95, alpha: 1)
     }
     required init?(coder: NSCoder) { super.init(coder: coder) }
@@ -275,11 +274,11 @@ extension MarkdownRenderer {
                     // would sit in a slab tall enough to touch the line above.
                     style.lineSpacing = theme.bodyLineSpacing
                     style.paragraphSpacing = descriptor.compact ? 5 : 14
-                    style.paragraphSpacingBefore = descriptor.heading > 0 ? 28 : 0
+                    style.paragraphSpacingBefore = descriptor.heading > 0 ? 12 : 0
                     style.headIndent = Double(descriptor.indent) * 20 + Double(descriptor.quote) * 16
                     style.firstLineHeadIndent = style.headIndent
                     style.lineBreakMode = .byWordWrapping
-                    if descriptor.heading > 0 { style.lineSpacing = 2; style.paragraphSpacing = 14 }
+                    if descriptor.heading > 0 { style.lineSpacing = 2; style.paragraphSpacing = 6 }
                     if descriptor.code { style.paragraphSpacing = 0; style.lineSpacing = 4 }
                     if descriptor.codeBlock != nil { style.textBlocks = [PreviewCodeBlock()] }
                     if let cell = descriptor.cell {

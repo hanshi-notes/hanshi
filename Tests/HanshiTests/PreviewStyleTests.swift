@@ -15,7 +15,8 @@ import Testing
     #expect(first === second)
     #expect(first !== other)
     #expect(first.width(for: .padding, edge: .minX) >= 10)
-    #expect(first.width(for: .padding, edge: .minY) >= 10)
+    #expect((4...8).contains(first.width(for: .padding, edge: .minY)))
+    #expect((4...8).contains(first.width(for: .margin, edge: .minY)))
     #expect(try paragraph("Inline").textBlocks.isEmpty)
     let bodyFont = try #require(result.text.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
     #expect(bodyFont.pointSize == 17)
@@ -58,7 +59,7 @@ import Testing
     NSRect(x: 0, y: 0, width: 100, height: 60).fill()
     PreviewCodeBlock().drawBackground(withFrame: NSRect(x: 10, y: 10, width: 80, height: 40),
         in: NSView(), characterRange: NSRange(location: 0, length: 0), layoutManager: NSLayoutManager())
-    let corner = try #require(bitmap.colorAt(x: 11, y: 19)?.usingColorSpace(.deviceRGB))
+    let corner = try #require(bitmap.colorAt(x: 11, y: 17)?.usingColorSpace(.deviceRGB))
     let margin = try #require(bitmap.colorAt(x: 50, y: 11)?.usingColorSpace(.deviceRGB))
     #expect(margin.redComponent > 0.99, "Outer margins must separate consecutive blocks")
     let center = try #require(bitmap.colorAt(x: 50, y: 30)?.usingColorSpace(.deviceRGB))
@@ -67,6 +68,99 @@ import Testing
 }
 
 extension AppKitWindowTests {
+    @Test(arguments: [14.0, 17.0, 24.0], [false, true]) @MainActor
+    func previewNumberedTasksKeepCheckboxesAndTextAligned(bodySize: Double, checked: Bool) async throws {
+        let labels = ["Most important outcome", "Second outcome", "Third outcome"]
+        let source = "# Daily planner\n\n" + (1...12).map {
+            "\($0). [\(checked ? "x" : " ")] [\(labels[($0 - 1) % labels.count])]"
+        }.joined(separator: "\n")
+        let session = MarkdownPreviewSession(debounce: .zero)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = session.scrollView
+        defer { session.hide(); window.contentView = nil; window.close() }
+        var snapshot = PreviewTestFixtures.snapshot(source)
+        snapshot.theme = PreviewTheme(bodySize: bodySize, lineHeight: 1.2)
+        session.show(snapshot)
+        await session.waitForRendering()
+        window.layoutIfNeeded()
+        let matches = try NSRegularExpression(pattern: #"\[[ x]\] \["#)
+            .matches(in: source, range: NSRange(location: 0, length: source.utf16.count))
+        #expect(matches.count == 12)
+        let bitmap = try #require(session.scrollView.bitmapImageRepForCachingDisplay(in: session.scrollView.bounds))
+        session.scrollView.cacheDisplay(in: session.scrollView.bounds, to: bitmap)
+        let scale = Double(bitmap.pixelsWide) / session.scrollView.bounds.width
+        func inkCenterY(in rect: NSRect) throws -> Double {
+            let rows = (Int(rect.minY * scale)..<Int(ceil(rect.maxY * scale))).filter { y in
+                (Int(rect.minX * scale)..<Int(ceil(rect.maxX * scale))).contains { x in
+                    guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { return false }
+                    return color.alphaComponent > 0.25
+                        && min(color.redComponent, color.greenComponent, color.blueComponent) < 0.74
+                }
+            }
+            return Double(try #require(rows.first) + #require(rows.last)) / (2 * scale)
+        }
+        var column: CGFloat?
+        for match in matches {
+            let frame = try #require(session.frame(at: match.range.location + 4, length: 1))
+            if let column { #expect(abs(frame.minX - column) < 0.5) }
+            else { column = frame.minX }
+            let boxRegion = NSRect(x: frame.minX - bodySize * 2, y: frame.minY,
+                width: bodySize * 2 - 3, height: frame.height)
+            let difference = try inkCenterY(in: frame) - inkCenterY(in: boxRegion)
+            #expect(abs(difference) <= (checked ? 0.5 : 0.01),
+                    "The visible checkbox and label must share a center: offset \(difference) pt")
+        }
+        if let path = ProcessInfo.processInfo.environment["HANSHI_TASK_SNAPSHOT"], bodySize == 14, !checked {
+            try #require(bitmap.representation(using: .png, properties: [:])).write(to: URL(filePath: path))
+        }
+    }
+
+    @Test(arguments: [17.0, 24.0], [false, true]) @MainActor
+    func previewCodeMatchesBodySizeAndUsesCompactSpacing(bodySize: Double, editable: Bool) async throws {
+        let source = #"""
+        Body text with `inline code`.
+
+        ```bash
+        alias uniqc="uniq -c | sed 's/^[ ]*//;s/ /\t/'"
+        alias barsep="sed 's/\t/ | /g'"
+        ```
+
+        ## Encoding
+
+        ### Detect encoding
+        """#
+        let document = PreviewTestFixtures.document(source)
+        let session = MarkdownPreviewSession(debounce: .zero)
+        defer { session.hide() }
+        var snapshot = PreviewSnapshot(library: UUID(), documentID: document.id, text: source,
+            url: document.url, root: document.url.deletingLastPathComponent())
+        snapshot.theme = PreviewTheme(bodySize: bodySize)
+        snapshot.settings = PreviewSettings(allowsEditing: editable)
+        session.show(snapshot, document: document)
+        await session.waitForRendering()
+        let storage = try #require(session.textView.textStorage)
+        func attributes(_ text: String) throws -> [NSAttributedString.Key: Any] {
+            let range = (storage.string as NSString).range(of: text)
+            try #require(range.location != NSNotFound)
+            return storage.attributes(at: range.location, effectiveRange: nil)
+        }
+        for text in ["Body text", "inline code", "alias uniqc", "alias barsep"] {
+            let font = try #require(attributes(text)[.font] as? NSFont)
+            #expect(Double(font.pointSize) == bodySize)
+            if text != "Body text" { #expect(font.isFixedPitch) }
+        }
+        for text in ["alias uniqc", "alias barsep"] {
+            let style = try #require(attributes(text)[.paragraphStyle] as? NSParagraphStyle)
+            #expect(style.paragraphSpacingBefore <= 2)
+            #expect(style.paragraphSpacing <= 2)
+        }
+        let heading = try #require(attributes("Detect encoding")[.paragraphStyle] as? NSParagraphStyle)
+        #expect((1...12).contains(heading.paragraphSpacingBefore))
+        #expect(document.text == source)
+    }
+
     @Test(arguments: [1.0, 1.5, 2.0], ["\n", "\n\n"]) @MainActor
     func previewTypedLinesMatchEditorLineHeight(lineHeight: Double, separator: String) async throws {
         let document = PreviewTestFixtures.document("Line 1")
@@ -126,7 +220,7 @@ extension AppKitWindowTests {
         let storage = try #require(session.textView.textStorage)
         let later = (storage.string as NSString).range(of: "Later heading")
         let style = try #require(storage.attribute(.paragraphStyle, at: later.location, effectiveRange: nil) as? NSParagraphStyle)
-        #expect(style.paragraphSpacingBefore >= 20, "Headings within the document still need separation")
+        #expect((1...12).contains(style.paragraphSpacingBefore), "Headings should keep a compact separation")
     }
 
     @Test(arguments: [false, true], [NSScroller.Style.overlay, .legacy]) @MainActor
@@ -206,15 +300,13 @@ extension AppKitWindowTests {
 }
 
 @Test @MainActor func previewThemeDerivesCodeSizeAndKeepsItsOtherSettingsIndependent() {
-    // The defaults must reproduce the hand-tuned values, or turning the settings on
-    // would silently restyle every existing note.
     let standard = PreviewTheme()
     #expect(standard.bodySize == 17)
-    #expect(standard.codeSize == 14)
+    #expect(standard.codeSize == standard.bodySize)
     #expect(standard.inset == NSSize(width: 38, height: 14))
     #expect(standard.bodyLineSpacing == 5, "The default line height reproduces the old fixed leading")
 
-    #expect(PreviewTheme(bodySize: 24).codeSize == 20, "Code follows the body size")
+    #expect(PreviewTheme(bodySize: 24).codeSize == 24, "Code matches the body size")
     // `Double(...)` throughout: `#expect` compares a CGFloat against a Double bound through
     // the implicit bridge and reports 14.0 != 14.0.
     #expect(Double(PreviewTheme(margin: 60).inset.height) == PreviewTheme.defaultVerticalMargin,

@@ -62,7 +62,7 @@ extension PreviewTheme {
         // Whatever these two disagree on, the engine wins on screen — so every value below
         // mirrors the composed one.
         configuration.headings.fontMultipliers = [2.0, 1.6, 1.3, 1.15, 1.0, 0.95]
-        configuration.headings.topSpacingEm = configuration.headings.fontMultipliers.map { 28 / (bodySize * $0) }
+        configuration.headings.topSpacingEm = configuration.headings.fontMultipliers.map { 12 / (bodySize * $0) }
         // The engine grows the line box itself (minimumLineHeight), so this also loosens code
         // blocks and stretches inline-code backgrounds. It is the same leading the composed
         // paragraph style uses, expressed in the unit the engine wants.
@@ -73,7 +73,7 @@ extension PreviewTheme {
         configuration.lists.extraLineHeight = leading
         configuration.blockquote = BlockquoteStyle(extraLineHeight: leading)
         configuration.codeBlock.fontSizeScale = codeSize / bodySize
-        configuration.codeBlock.paragraphSpacing = 5
+        configuration.codeBlock.paragraphSpacing = 2
         configuration.codeBlock.cornerRadius = 8
         configuration.extensions = [StrikethroughExtension()]
         configuration.spellChecking = SpellCheckingPolicy(continuousSpellChecking: false, grammarChecking: false, automaticSpellingCorrection: false)

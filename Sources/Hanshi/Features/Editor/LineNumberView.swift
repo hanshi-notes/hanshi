@@ -77,13 +77,17 @@ final class LineNumberView: NSRulerView {
     }
     override func drawHashMarksAndLabels(in rect: NSRect) {
         guard let text = clientView as? NSTextView, let manager = text.layoutManager,
-              let first = text.firstVisibleCharacter() else { return }
+              let container = text.textContainer else { return }
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
-        // Scrolled line labels and oversized damage must stay inside the gutter.
-        bounds.intersection(rect).clip()
+        // AppKit prepares hash marks beyond the viewport for scrolling. Clip to its
+        // requested drawing area; clipsToBounds keeps the displayed ruler in its column.
+        rect.clip()
         text.backgroundColor.setFill()
-        rect.intersection(bounds).fill()
+        rect.fill()
+        let top = text.convert(NSPoint(x: 0, y: rect.minY), from: self).y - text.textContainerOrigin.y
+        let first = manager.characterIndex(for: NSPoint(x: container.lineFragmentPadding, y: max(0, top)),
+            in: container, fractionOfDistanceBetweenInsertionPoints: nil)
         let attributes: [NSAttributedString.Key: Any] = [.font: font,
             .foregroundColor: (text.textColor ?? .textColor).withAlphaComponent(0.6)]
         for index in (lineNumber(at: first) - 1)..<lineStarts.count {
@@ -97,7 +101,7 @@ final class LineNumberView: NSRulerView {
                 baseline = manager.location(forGlyphAt: glyph).y
             }
             let point = convert(frame.origin, from: text)
-            if point.y > bounds.maxY { break }
+            if point.y > rect.maxY { break }
             let label = String(index + 1) as NSString
             let size = label.size(withAttributes: attributes)
             label.draw(at: NSPoint(x: ruleThickness - size.width - 8,
