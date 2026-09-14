@@ -1,59 +1,36 @@
 # Hanshi
 
-A native macOS notebook browser built with SwiftUI. Requires macOS 15.0+ and Swift tools 6.3 or later, using Swift 6 language mode. The development toolchain is Swift 6.3.3.
+A native macOS notebook app for Markdown notes, built with SwiftUI. Notes are plain `.md` files on disk: each folder in `~/Documents/hanshi` is a notebook. It has a Tree-sitter-highlighted editor, an editable live preview with formulas and Mermaid diagrams, split view, and wiki-links between notes.
 
-## Experimental preview development
+## Requirements
 
-The `experimental` branch uses our [swift-markdown-engine fork](https://github.com/hanshi-notes/swift-markdown-engine) as a local SwiftPM dependency, tracked as a Git submodule:
+- macOS 15.0+
+- Swift 6.3+ (`swift --version`)
+- Xcode (for `xcrun actool` when packaging)
+- Rust/Cargo from [rustup.rs](https://rustup.rs), for the Mermaid renderer
+
+## Build
 
 ```sh
-git clone --recurse-submodules --branch experimental https://github.com/hanshi-notes/hanshi.git
+git clone --recurse-submodules https://github.com/hanshi-notes/hanshi.git
 cd hanshi
-```
-
-For an existing checkout, run `git submodule update --init`. `Package.swift` resolves `Vendor/swift-markdown-engine`, so engine edits are compiled directly into Hanshi. Each repository has its own commits and tests: run `swift test` for the app and `swift test --package-path Vendor/swift-markdown-engine` for the engine. Commit and push engine changes before committing and pushing the app's updated submodule pointer.
-
-The scripts use `swift` and `swiftc` from your `PATH`, matching the compiler selected in your terminal (including Swiftly). If `swift --version` already reports 6.3+, build directly:
-
-```sh
-swift --version
 Scripts/build_mermaid.sh
 swift test
 Scripts/package_app.sh
 open build/Hanshi.app
 ```
 
-Packaging requires Xcode's asset catalog compiler (`xcrun actool`). The app icon comes from `Sources/Hanshi/Resources/Assets.xcassets/AppIcon.appiconset`; the packaging script compiles the catalog into the app's resources and merges its icon metadata before signing. After packaging, run `python3 Tests/Scripts/test_app_icon.py` to verify the icon metadata, all icon resolutions, and the bundle signature.
+In an existing checkout, run `git submodule update --init` first. The Markdown engine lives in the `Vendor/swift-markdown-engine` submodule, which is its own repository with its own tests: `swift test --package-path Vendor/swift-markdown-engine`.
 
-Building Mermaid requires Rust/Cargo (install the stable toolchain from [rustup.rs](https://rustup.rs)). `Scripts/build_mermaid.sh` builds the locked merman/resvg static library for the host architecture; rerun it after changes to `Native/Mermaid`. The packaging script runs it automatically. Rust, Node and JavaScript runtimes are not required on the end user’s Mac.
+If `swift` still resolves to Xcode's older compiler, run `export TOOLCHAINS=org.swift.633202606251a` for the session.
 
-For release packaging checks, run `Scripts/package_app.sh release`, `Scripts/check_preview_package.sh`, and `Scripts/check_editor_package.sh`. The editor check verifies the 13 retained grammar configurations, Markdown/Swift highlighting, all 13 CotEditor themes, and editor notices. The preview check renders formulas and Mermaid using the release engine objects and resources. Both use disposable apps with `.build` temporarily hidden (restoring it on exit); run them sequentially after builds finish. Toolchain-selection regressions run with `python3 Tests/Scripts/test_swift_toolchain.py`. Native bridge tests run with `cargo test --release --locked --manifest-path Native/Mermaid/Cargo.toml --target-dir .build/mermaid`.
+## Good to know
 
-If your terminal still selects Xcode’s older Swift through `/usr/bin/swift`, run `export TOOLCHAINS=org.swift.633202606251a` to select the installed standalone Swift 6.3.3 toolchain for that session, then check `swift --version` again. This does not change Xcode’s global selection. `xcrun swift` follows Xcode/toolchain selection and can differ from a Swiftly-managed `swift` on `PATH`. In Xcode, select Swift 6.3.3 under **Xcode → Toolchains** when using the standalone installation.
+- **Shortcuts:** new notebook ⌘⇧N, new note ⌘N, search ⌘⇧F, refresh ⌘R, Editor/Preview/Split ⌘⌥1/2/3, Zen ⌘⌥Z.
+- **Wiki-links:** `[[Note]]` or `[[Notebook/Note]]`. Renaming a note does not update links to it yet.
+- **Not yet:** autosave, continuous filesystem watching, a configurable library location.
+- **Signing:** the packaged app is ad-hoc signed, with no App Sandbox or notarization. Release checks: `Scripts/package_app.sh release`, `Scripts/check_preview_package.sh`, `Scripts/check_editor_package.sh`.
 
-The first launch creates `~/Documents/hanshi` without adding sample content or changing existing files. Each immediate folder is a notebook. Create a notebook with **⌘⇧N**, then create Markdown files with **⌘N**. New files use the first available name in their notebook: `Note.md`, `Note (1).md`, and so on. The title template is enabled by default: new notes start with `# Note`, and saving follows the first heading while the filename is still managed by that behavior. Turning the template off creates blank notes. Notes are sorted in natural filename order and displayed without their extension. In All Notes, creating a note asks for its destination notebook.
+## License
 
-The layout follows the supplied Notable replica: full-height dark sidebar, full-width selection rows, and grouped note actions. Click **Notebooks** or use **⌘⇧N** to create a folder.
-
-Search filenames with **⌘⇧F**, refresh from disk with **⌘R**, and toggle Zen with **⌘⌥Z**. Hide or show the notebook sidebar from **View** (**⌃⌘S**), keeping the note list and document visible; its visibility is preserved when leaving Zen. Choose Editor, Preview, or Split from **View** (**⌘⌥1**, **⌘⌥2**, **⌘⌥3**); the pencil toggles Editor/Preview and also offers the modes in its context menu. The selected notebook is restored on the next launch, including after a folder rename; a missing notebook falls back to All Notes. Settings → General → Startup chooses the initial content view (Editor by default, Preview, or Split). Changing this preference takes effect on the next launch and does not change the current view. The library also refreshes when the app becomes active. Folder and file context menus open Finder. Notebooks and notes keep filesystem identity when renamed externally.
-
-Wiki-links open catalog notes from Preview or the preview pane in Split View. Use `[[Project]]` for a unique note name or `[[Work/Project]]` for a path relative to the library root; `.md` is optional. Names match without case sensitivity and support Unicode. Repeated names require a notebook path. Missing, ambiguous, and invalid links are dimmed; hover over one for an explanation and, for ambiguous names, the candidate paths. Editing keeps the plain wiki-link syntax in the Markdown file. Renaming and moving notes do not yet rewrite links in other notes.
-
-The Markdown editor uses NSTextView with TextKit 1 and incremental Tree-sitter highlighting, with manual saving, undo/redo, and draft preservation across notes and content modes. The preview displays and edits the unsaved draft through MarkdownEngine and TextKit 2, with manual saving and undo/redo. Settings → Editing → Markdown Preview controls whether previews are editable (enabled by default) and whether Markdown markers appear around the text being edited (disabled by default). Both preferences apply immediately; hiding markers preserves the Markdown source. Hanshi retains cmark-gfm for source anchors and bounded resource preparation, HighlightKit code highlighting, SwaTex formulas and merman 0.7.0/resvg 0.47.0 diagrams. Split synchronizes scrolling by source blocks; switching modes preserves editor selection and undo/redo. Preview links to catalog notes preserve the reading mode and focus. Autosave, continuous filesystem watching, and library-location preferences remain planned.
-
-Editor fences have language-specific highlighting for Swift, Python, Bash, JavaScript, TypeScript, JSON, HTML and CSS. YAML metadata and JavaScript's JSDoc/Regex injections are also retained. Other fence languages use the Markdown literal color in the editor; the preview continues to use HighlightKit's language catalog. The parser list is deliberately limited to keep compiled grammar tables out of the shipped binary.
-
-The experimental preview uses MarkdownEngine’s Markdown dialect for headings, tables, task lists, strikethrough and inline links. Reference-style links/images and inline image placement do not yet have parity with the previous cmark preview. Plain-text copy preserves Markdown source; rich-text copy provides formatted content. Front matter remains visible. Local raster images are restricted to the library, including symlink validation; remote images are never downloaded. Web/email links open only when clicked; local non-Markdown attachments are revealed in Finder. Refresh with **⌘R** to reread changed images.
-
-Use `$…$` for inline formulas, `$$…$$` for display formulas and fenced `mermaid` blocks for diagrams. Escaped dollars and code remain literal; single-dollar formulas cannot cross a newline, code span or HTML tag. Unclosed delimiters remain visible. Invalid formulas/diagrams show their source and a diagnostic. Mermaid is a compatibility implementation, not guaranteed browser-identical output; rasterized diagrams do not execute callbacks or load external resources.
-
-Work is bounded: notes up to 2 MB, Markdown nesting up to 128 levels, code highlighting up to 64 KB per block (larger blocks remain readable), formulas up to 4 KB/64 brace levels, diagrams up to 32 KB/256 lines/512 statements. Images are limited to 20 MB and 80 million input pixels and downsampled to 2048 pixels. A render is limited to 256 media attachments and 32 million output pixels. The preview currently uses the app’s light appearance.
-
-The app has one window and quits when that window closes. The packaging script makes a locally ad-hoc-signed app without App Sandbox, bundling syntax queries, formula fonts and third-party license notices. Resource bundles are placed in `Contents/Resources`. Packaging applies the small, checked `Patches/SwaTex-resource-bundle.patch` to the pinned checkout so its font loader finds that signed-app location; normal SwiftPM builds retain their existing fallback. No math or synchronization code is changed. The Rust renderer is statically linked; the build produces the host architecture. Developer ID signing and notarization are not configured.
-
-Resource parsing, highlighting, formulas and diagrams are prepared off the main actor. MarkdownEngine performs its own Markdown styling and TextKit 2 layout on the main actor. The existing cmark composition tests remain as coverage for the resource/clipboard-independent renderer; they are not measurements of the new onscreen preview. Run `swift test -c release --filter previewHundredKilobyteUpdatesIncludeApplicationAndLayout` for end-to-end preview measurements. Image and diagram resizing uses the engine's recorded block ranges without reloading the note. No performance improvement is claimed by this integration.
-
-
-Editor syntax colors use temporary NSLayoutManager attributes, so changing a theme does not alter source text or undo history. The editor retains its font, indentation, gutter and invisible-character preferences and adds 13 bundled CotEditor themes with a themed preview in Appearance settings. CotEditor adaptations and resource revisions are listed in `Sources/Hanshi/Resources/ThirdPartyNotices/Editor-Sources.md`. No CotEditor image resources are included.
-
-Run `swift test -c release --filter nativeEditorMillionByteCorpus` to measure the 1 MB editor corpus (layout, typing and highlighting). Parsing remains off the main actor; pending highlighting requests coalesce to the latest source. The syntax service indexes UTF-16 line starts once per parse, preserving byte columns for Unicode text. See `Tests/Manual/NativeEditor.md` for native input and accessibility checks.
+Hanshi is licensed under the [GNU General Public License v3.0](LICENSE). Third-party notices are in `Sources/Hanshi/Resources/ThirdPartyNotices`.
