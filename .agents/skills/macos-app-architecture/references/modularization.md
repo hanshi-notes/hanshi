@@ -180,8 +180,20 @@ public enum AppRoute: Hashable, Codable, Sendable {
     case tag(String)
 }
 
+@MainActor @Observable
+public final class Navigator {
+    public var selection: AppRoute?
+    public init() {}
+}
+
+public struct NavigateAction: Sendable {
+    private let navigator: Navigator?
+    public init(_ navigator: Navigator? = nil) { self.navigator = navigator }
+    @MainActor public func callAsFunction(_ route: AppRoute) { navigator?.selection = route }
+}
+
 extension EnvironmentValues {
-    @Entry public var navigate: (AppRoute) -> Void = { _ in }
+    @Entry public var navigate = NavigateAction()   // no-op default: previews need no wiring
 }
 
 // SearchFeature — imports AppRoutes, and nothing else of ours
@@ -200,14 +212,14 @@ public struct SearchScreen: View {
 
 // AppLayer — the only place that knows both features exist
 public struct RootScreen: View {
-    @State private var selection: AppRoute?
+    @State private var navigator = Navigator()
 
     public var body: some View {
         NavigationSplitView {
             SearchScreen(hits: hits)
-                .environment(\.navigate) { selection = $0 }
+                .environment(\.navigate, NavigateAction(navigator))
         } detail: {
-            switch selection {
+            switch navigator.selection {
             case .note(let id): NoteDetailScreen(id: id)     // NotesFeature
             case .tag, nil:     ContentUnavailableView("No Selection", systemImage: "doc")
             }
@@ -217,7 +229,22 @@ public struct RootScreen: View {
 ```
 
 **Verified**: both versions compile as separate SwiftPM targets against a macOS 14
-deployment target, Swift 6.2.4.
+deployment target, Swift 6.2.4. The `NavigateAction` version was re-checked on
+2026-09-15 in Swift 6 language mode.
+
+**Why a `NavigateAction` and not `@Entry var navigate: (AppRoute) -> Void`.** Up to
+3.1.1 this section injected a closure, and `RootScreen` re-created it on every `body`
+pass. `swiftui-expert-skill` (`environment-patterns.md:69-73`) says a closure in a
+custom key makes every reader invalidate. **Measured**, 50 parent updates with an
+unrelated environment write in the same subtree: in a **Release** build the closure cost
+the reader **1** extra evaluation in total; in a **Debug** build it cost **50**, one per
+update. `NavigateAction` holding the `@Observable` navigator cost **0** in both. Behaviour
+that holds only when the optimizer is on is not something to build a module boundary on,
+and the struct costs the same lines. Nothing else moves: `callAsFunction` keeps the call
+site at `navigate(.note(id))`, the no-op default keeps previews free of wiring, and a
+Feature can still only *emit* a route — the environment hands it no way to read
+`selection`, which the App layer owns.
+Numbers in [overrides.md](overrides.md#from-swiftui-expert-skill).
 
 macOS makes this easier than iOS, and the reason is
 [navigation.md](navigation.md#the-macos-model-is-selection-not-a-stack): "presenting"

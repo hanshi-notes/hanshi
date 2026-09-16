@@ -32,7 +32,7 @@ If you're doing ANY of these, STOP and use the patterns in this skill:
 #### 2. Hardcoding file paths
 ```swift
 // ❌ WRONG — Path differs per user, breaks in sandbox
-let configPath = "/Users/charles/Library/Application Support/MyApp/config.json"
+let configPath = "/Users/you/Library/Application Support/MyApp/config.json"
 ```
 **Why this fails**: Sandboxed apps get a container at `~/Library/Containers/<bundle-id>/`. Hardcoded paths point outside the container and will be denied. Use `FileManager` APIs to resolve paths.
 
@@ -327,6 +327,12 @@ let bookmarkData = try sourceFileURL.bookmarkData(
 Any process with access to the parent document can resolve these bookmarks.
 
 ---
+
+## Cross-Team Container Access `OS27`
+
+macOS 27 no longer prompts when an app accesses files in another developer team's **app data containers or app group containers**. Such access is denied by default, and the user manages exceptions in Privacy & Security settings (release note 161835690). No compiler diagnostic or SDK annotation flags it.
+
+Code that reads or writes another team's container now fails at runtime with no prompt. An App Group does not route around this, because the release note covers other teams' group containers too. Sign both apps under one team and share an App Group, or have the user allow the access in Privacy & Security.
 
 ## Entitlements
 

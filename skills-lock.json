@@ -5,7 +5,7 @@
       "source": "CharlesWiltgen/Axiom",
       "sourceType": "github",
       "skillPath": ".claude-plugin/plugins/axiom/skills/axiom-macos/SKILL.md",
-      "computedHash": "e3f09461680b75cc342961ad1980bd04c55c2939ba6eefc3c861a41fe0b9019c"
+      "computedHash": "47d496a023942e459d68c3223c8a08138dc74582e679b192289b267aafeb1232"
     },
     "instruments-profiling": {
       "source": "steipete/agent-scripts",
@@ -17,7 +17,7 @@
       "source": "gerardp/macos-architecture-skills",
       "sourceType": "github",
       "skillPath": ".agents/skills/macos-app-architecture/SKILL.md",
-      "computedHash": "7793839eefbf6bea2843920bff424f51dc7865927bff3773b7d670eddce60ad8"
+      "computedHash": "a92c1bb41f8eb6859dc33551524b1fbdcd5afe4cdd24594a3693a631a823012f"
     },
     "macos-spm-app-packaging": {
       "source": "Dimillian/Skills",
@@ -41,13 +41,43 @@
       "source": "avdlee/swiftui-agent-skill",
       "sourceType": "github",
       "skillPath": "skills/swiftui-expert-skill/SKILL.md",
-      "computedHash": "352119e45436aa70d5a0d29e275dc55769ab509c2098505b391c2e1347c1118a"
+      "computedHash": "cb78ed6bbe4dabf53ef93431f8a0ae43e09cf39b8ce6e04dac1cc144f0cf02f4"
+    },
+    "txt-appkit-vs-uikit": {
+      "source": "sitapix/apple-text",
+      "sourceType": "github",
+      "skillPath": "skills/txt-appkit-vs-uikit/SKILL.md",
+      "computedHash": "98d81ad02a2acac003ce742d7f497a90b14c782d615ffe3a31518f02d847ba11"
+    },
+    "txt-layout-invalidation": {
+      "source": "sitapix/apple-text",
+      "sourceType": "github",
+      "skillPath": "skills/txt-layout-invalidation/SKILL.md",
+      "computedHash": "23d866ffcff63605a9d704e231f7bca4b616f1dbc5e3f94526cb38b5f42a6737"
+    },
+    "txt-nstextstorage": {
+      "source": "sitapix/apple-text",
+      "sourceType": "github",
+      "skillPath": "skills/txt-nstextstorage/SKILL.md",
+      "computedHash": "c5f4f2841e0c54c66650a096d2851faf78334eba074fb11f045b1670a8a21318"
+    },
+    "txt-textkit2": {
+      "source": "sitapix/apple-text",
+      "sourceType": "github",
+      "skillPath": "skills/txt-textkit2/SKILL.md",
+      "computedHash": "8ee039accf69eb2a19778ad30c17f84e9dde3c54afb8a64405f498cab454d798"
+    },
+    "txt-viewport-rendering": {
+      "source": "sitapix/apple-text",
+      "sourceType": "github",
+      "skillPath": "skills/txt-viewport-rendering/SKILL.md",
+      "computedHash": "afe1b8a3490017f99647f8c19697bffe154e09a536d576062476eb66771f8f3a"
     },
     "write-swift": {
       "source": "emilkowalski/skills",
       "sourceType": "github",
       "skillPath": "skills/write-swift/SKILL.md",
-      "computedHash": "ccbb74cac81765fcf2912ceba8d188fddbd75393ecb808aa1a4f6f58d9c2c828"
+      "computedHash": "f20bb9cf51dbee1900b264820a12f1d3d378dc4d23ac758e7ba9e644c49a2459"
     }
   }
 }

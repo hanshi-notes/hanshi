@@ -28,6 +28,29 @@ a stated consequence becomes silent drift by accident.
 Release procedure: bump `metadata.version` in `SKILL.md` and add the entry here **in the same commit
 as the rule change**, then tag `v<version>`.
 
+## 3.2.0 — 2026-09-15
+
+1. **[Key-path bindings](references/antipatterns.md#an-enum-for-all-view-state).**
+   The alert example now uses `$state.isShowingError`. Replace manual `Binding(get:set:)`
+   projections with a computed property or subscript where possible; keep manual bindings
+   for transforms no key path can express. In measurements, the key-path binding eliminated
+   child re-evaluations across 50 parent updates in both Debug and Release.
+
+2. **[Cross-feature navigation with `NavigateAction`](references/modularization.md#4-crossing-a-feature-boundary-on-macos).**
+   Replace `@Entry var navigate: (AppRoute) -> Void` with a `NavigateAction` struct backed
+   by an `@Observable Navigator` in the routes leaf module. The App owns the navigator and
+   injects `NavigateAction(navigator)`. Call sites remain `navigate(.note(id))`. In measurements,
+   this eliminated navigation-reader re-evaluations caused by unrelated environment writes
+   in both Debug and Release.
+
+Additional updates:
+
+- Added measurements for view event closures supporting Quick Rule 5's `onEvent` pattern.
+- Updated companion-skill citations in [overrides.md](references/overrides.md) for
+  `swiftui-expert-skill` 5.0.0.
+- Updated companion install commands to `npx skills@latest` and added migration guidance
+  for installations predating the Agent Plugins layout.
+
 ## 3.1.1 — 2026-09-05
 
 **PATCH: formatting. No rule changed, no companion skill added or removed.**

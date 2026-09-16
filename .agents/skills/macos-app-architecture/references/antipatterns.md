@@ -407,6 +407,11 @@ struct NoteListState {
     var notes: [Note] = []
     var isLoading = false
     var lastError: String?
+
+    var isShowingError: Bool {                    // a projection, so the binding is a key path
+        get { lastError != nil }
+        set { if !newValue { lastError = nil } }
+    }
 }
 
 struct NoteListScreen: View {
@@ -415,10 +420,7 @@ struct NoteListScreen: View {
     var body: some View {
         NoteListView(notes: state.notes)          // always the latest data available
             .overlay { if state.isLoading { ProgressView() } }
-            .alert("Error", isPresented: Binding(
-                get: { state.lastError != nil },
-                set: { if !$0 { state.lastError = nil } }
-            )) {
+            .alert("Error", isPresented: $state.isShowingError) {
                 Button("OK") { state.lastError = nil }
             } message: {
                 Text(state.lastError ?? "")
@@ -426,6 +428,12 @@ struct NoteListScreen: View {
     }
 }
 ```
+
+Not `Binding(get:set:)`. SwiftUI treats a hand-built binding as a new value on every
+`body` pass, so whatever receives it re-evaluates every time the screen does.
+**Measured**, 50 parent updates, Debug and Release: a child view handed
+`Binding(get:set:)` re-evaluated **50** times; handed `$state.isShowingError`, **0**.
+Numbers in [overrides.md](overrides.md#from-swiftui-expert-skill).
 
 **When the enum is appropriate:** when the states are truly exclusive and
 never overlap—like a modal edit state, a document type, or a currently active
@@ -571,15 +579,30 @@ feature's screen, and on macOS "presenting" is a selection anyway.
 // AppRoutes (leaf module)
 public enum AppRoute: Hashable, Codable, Sendable { case note(UUID), tag(String) }
 
+@MainActor @Observable
+public final class Navigator {
+    public var selection: AppRoute?
+    public init() {}
+}
+
+public struct NavigateAction: Sendable {
+    private let navigator: Navigator?
+    public init(_ navigator: Navigator? = nil) { self.navigator = navigator }
+    @MainActor public func callAsFunction(_ route: AppRoute) { navigator?.selection = route }
+}
+
 extension EnvironmentValues {
-    @Entry public var navigate: (AppRoute) -> Void = { _ in }
+    @Entry public var navigate = NavigateAction()
 }
 
 // SearchFeature — imports AppRoutes and nothing else of ours
 Button(id.uuidString) { navigate(.note(id)) }
 ```
 
-Full version, with the App-layer side and the compile check, in
+The environment value is a struct, not a `(AppRoute) -> Void` closure: in a Debug build
+a closure in an `@Entry` re-evaluated every reader on every environment write.
+
+Full version, with the App-layer side, the measurement and the compile check, in
 [modularization.md](modularization.md#4-crossing-a-feature-boundary-on-macos).
 
 ---

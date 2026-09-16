@@ -32,10 +32,12 @@ to contradict this skill:
 
 ### Derived state cached in `@State` and synced with `onChange`
 
-**Claim**: `swiftui-expert-skill` → `references/performance-patterns.md:366-386`
+**Claim**: `swiftui-expert-skill` → `references/performance-patterns.md:352-373`
 ("Heavy Computation in Body") offers, as the default remedy for sorting inside
 `body`, storing the sorted array in `@State private var sortedItems` and
-refreshing it from `.onChange(of: items)`.
+refreshing it from `.onChange(of: items)`. Since 5.0.0,
+`references/view-structure.md:276` repeats it: *"Cache derived collections on
+the model (or in `@State` updated from `.onChange`)"*.
 
 **Our approach**: derive. A computed property (`var visibleNotes: [Note]`) is
 the default, as in
@@ -49,12 +51,13 @@ an explicit update rule, not a mirror kept in sync by hand.
 appearance: if `items` already has values when the view appears and never
 changes afterwards, the list renders empty. The fix (`initial: true`) restores
 the exact class of desynchronization bug that deriving removes. The same file
-contradicts itself two sections later—`performance-patterns.md:389-399`
+contradicts itself two sections later—`performance-patterns.md:375-385`
 ("Unnecessary State") marks storing derived state as BAD.
 
 **Verified**: read in the installed copy at
 `.agents/skills/swiftui-expert-skill/references/performance-patterns.md`,
-2026-08-31. `onChange(of:initial:)` semantics per Apple's documentation.
+2026-08-31. Re-read at 5.0.0 on 2026-09-15: the snippet is unchanged, only its
+lines moved. `onChange(of:initial:)` semantics per Apple's documentation.
 
 ---
 
@@ -62,6 +65,44 @@ contradicts itself two sections later—`performance-patterns.md:389-399`
 
 Refinements to installed skills that do not contradict them. Recorded here so
 they do not get rediscovered.
+
+### From `swiftui-expert-skill`
+
+Three claims about closures, **measured** before deciding whether to override
+them. None became an override: two were adopted, one does not apply. The
+harness hosts each variant in an `NSHostingView` and counts a child's `body`
+evaluations while its parent re-evaluates **50 times** for a reason unrelated
+to the child. macOS 15.8, Xcode 26.3 (SDK 26.2), Swift 6.2.4, deployment target
+macOS 14, 2026-09-15. The pattern was identical at N = 20.
+
+| The child receives | Release | Debug |
+|---|---|---|
+| Control: nothing that changes | 0 | 0 |
+| Control: the changing value | 50 | 50 |
+| `Binding(get:set:)` | **50** | **50** |
+| A key-path binding (`$state.isShowingError`, `$model[scoreFor:]`) | 0 | 0 |
+| An `@Entry` closure re-created on each parent `body` | 1 | 1 |
+| …plus an unrelated environment write in the subtree | **1** | **50** |
+| An `@Entry` struct holding an `@Observable` reference, re-created, same writes | 0 | 0 |
+| An `onEvent` closure capturing `@State` or a store | 1 | 1 |
+
+A 1 is a single extra evaluation on the first update. It does not grow with N.
+
+- **Closure bindings: confirmed, adopted.** `state-management.md:218-235`
+  ("Prefer KeyPath Bindings Over Closure Bindings"). A child handed
+  `Binding(get:set:)` re-evaluates on every parent update, in both build
+  configurations. [antipatterns.md](antipatterns.md#an-enum-for-all-view-state)
+  used one in its *Right* example until 3.2.0.
+- **Closures in environment keys: Debug only, adopted anyway.**
+  `environment-patterns.md:69-73` ("Never Store Closures in Custom Keys"). In
+  Release the reader paid once; in Debug, every environment write in the subtree
+  re-evaluated it. Adopted because behaviour that depends on the optimization
+  level can change with any toolchain, and the replacement costs nothing. See
+  [modularization.md §4](modularization.md#4-crossing-a-feature-boundary-on-macos).
+- **Closure parameters are a different case.** An event closure passed to a view
+  (Quick Rule 5's `onEvent`) cost one evaluation, once. Do not stretch the two
+  rules above to cover it. Content closures (`view-structure.md:359`, "Avoid
+  Closure-Based Content") were **not measured**.
 
 ### From `swiftui-performance-audit`
 
@@ -111,13 +152,19 @@ command line.
 
 ## Revision Status
 
-**As of 2026-08-31**, for the 11 installed skills:
+**As of 2026-08-31**, for the 11 installed skills; `swiftui-expert-skill`
+re-read at 5.0.0 on 2026-09-15:
 
 - **`swiftui-expert-skill`** (AvdLee) — **does not conflict by design**. It
   literally states: *"do not enforce specific architectures (MVVM, VIPER, etc.)"*
   and *"encourage separating business logic from views for testability without
-  mandating how"* (`SKILL.md:13-14`). It leaves the architecture gap empty, which
-  is exactly what this skill occupies.
+  mandating how"* (`SKILL.md:14-15`). It leaves the architecture gap empty, which
+  is exactly what this skill occupies. **At 5.0.0** it gained SDK 27 guidance
+  (the `@State` macro, `@ContentBuilder`, `Document`, attributed `TextEditor`,
+  toolbars, WebKit). All of it is execution layer, and none of it was verified
+  here: no Xcode 27 toolchain was available. Its closure rules had been
+  contradicted here since 4.2.0 without an entry; they are now measured and
+  adopted, see [the nuances above](#from-swiftui-expert-skill).
 - **`swift-concurrency`** (AvdLee), **`swift-testing-expert`** — use `ViewModel`
   as an example object to demonstrate `@MainActor` and tests. Not architectural
   advice.
