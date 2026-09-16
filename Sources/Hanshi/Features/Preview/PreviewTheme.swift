@@ -40,19 +40,19 @@ nonisolated struct PreviewTheme: Equatable, Sendable {
     }
 
     static func clampedBodySize(_ value: Double) -> Double {
-        value.isFinite ? min(max(value, bodySizeRange.lowerBound), bodySizeRange.upperBound) : defaultBodySize
+        value[clampedTo: bodySizeRange, fallback: defaultBodySize]
     }
 
     static func clampedMargin(_ value: Double) -> Double {
-        value.isFinite ? min(max(value, marginRange.lowerBound), marginRange.upperBound) : defaultMargin
+        value[clampedTo: marginRange, fallback: defaultMargin]
     }
 
     static func clampedVerticalMargin(_ value: Double) -> Double {
-        value.isFinite ? min(max(value, verticalMarginRange.lowerBound), verticalMarginRange.upperBound) : defaultVerticalMargin
+        value[clampedTo: verticalMarginRange, fallback: defaultVerticalMargin]
     }
 
     static func clampedLineHeight(_ value: Double) -> Double {
-        value.isFinite ? min(max(value, lineHeightRange.lowerBound), lineHeightRange.upperBound) : defaultLineHeight
+        value[clampedTo: lineHeightRange, fallback: defaultLineHeight]
     }
 
     /// The reading font at `size`, falling back to the system font when the stored name

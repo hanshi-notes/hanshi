@@ -19,7 +19,7 @@ enum EditorFont {
     static let sizeRange = 10.0...144.0
 
     static func clampedSize(_ size: Double) -> Double {
-        size.isFinite ? min(max(size, sizeRange.lowerBound), sizeRange.upperBound) : defaultSize
+        size[clampedTo: sizeRange, fallback: defaultSize]
     }
 
     static var showsGutter: Bool { UserDefaults.standard.object(forKey: gutterKey) as? Bool ?? true }
@@ -29,15 +29,15 @@ enum EditorFont {
     static var showsInvisibles: Bool { UserDefaults.standard.bool(forKey: invisiblesKey) }
 
     static func clampedLetterSpacing(_ value: Double) -> Double {
-        value.isFinite ? min(max(value, letterSpacingRange.lowerBound), letterSpacingRange.upperBound) : 1
+        value[clampedTo: letterSpacingRange, fallback: 1]
     }
 
     static func clampedTabWidth(_ width: Int) -> Int {
-        min(max(width, tabWidthRange.lowerBound), tabWidthRange.upperBound)
+        width[clampedTo: tabWidthRange]
     }
 
     static func clampedLineHeight(_ value: Double) -> Double {
-        value.isFinite ? min(max(value, 1), 3) : 1
+        value[clampedTo: 1...3, fallback: 1]
     }
 
     static func resolve(name: String = "", family: String = "", size: Double) -> NSFont {
@@ -107,27 +107,23 @@ struct TextEditingSettingsView: View {
     @AppStorage(PreviewSettings.lineHeightKey) private var previewLineHeight = PreviewTheme.defaultLineHeight
 
     private var boundedTabWidth: Binding<Int> {
-        Binding(get: { EditorFont.clampedTabWidth(tabWidth) }, set: { tabWidth = EditorFont.clampedTabWidth($0) })
+        $tabWidth[clampedTo: EditorFont.tabWidthRange]
     }
 
     private var boundedPreviewBodySize: Binding<Double> {
-        Binding(get: { PreviewTheme.clampedBodySize(previewBodySize) },
-                set: { previewBodySize = PreviewTheme.clampedBodySize($0) })
+        $previewBodySize[clampedTo: PreviewTheme.bodySizeRange, fallback: PreviewTheme.defaultBodySize]
     }
 
     private var boundedPreviewMargin: Binding<Double> {
-        Binding(get: { PreviewTheme.clampedMargin(previewMargin) },
-                set: { previewMargin = PreviewTheme.clampedMargin($0) })
+        $previewMargin[clampedTo: PreviewTheme.marginRange, fallback: PreviewTheme.defaultMargin]
     }
 
     private var boundedPreviewVerticalMargin: Binding<Double> {
-        Binding(get: { PreviewTheme.clampedVerticalMargin(previewVerticalMargin) },
-                set: { previewVerticalMargin = PreviewTheme.clampedVerticalMargin($0) })
+        $previewVerticalMargin[clampedTo: PreviewTheme.verticalMarginRange, fallback: PreviewTheme.defaultVerticalMargin]
     }
 
     private var boundedPreviewLineHeight: Binding<Double> {
-        Binding(get: { PreviewTheme.clampedLineHeight(previewLineHeight) },
-                set: { previewLineHeight = PreviewTheme.clampedLineHeight($0) })
+        $previewLineHeight[clampedTo: PreviewTheme.lineHeightRange, fallback: PreviewTheme.defaultLineHeight]
     }
 
     private var previewTheme: PreviewTheme {
@@ -292,7 +288,7 @@ struct EditorSettingsView: View {
     @AppStorage(SyntaxTheme.key) private var theme = SyntaxTheme.system.rawValue
 
     private var boundedSize: Binding<Double> {
-        Binding(get: { EditorFont.clampedSize(size) }, set: { size = EditorFont.clampedSize($0) })
+        $size[clampedTo: EditorFont.sizeRange, fallback: EditorFont.defaultSize]
     }
 
     private var selectedFont: Binding<NSFont> {
@@ -348,10 +344,7 @@ struct EditorSettingsView: View {
                 .toggleStyle(.checkbox)
                 LabeledContent("Line height") {
                     HStack {
-                        TextField("Line height", value: Binding(
-                            get: { EditorFont.clampedLineHeight(lineHeight) },
-                            set: { lineHeight = EditorFont.clampedLineHeight($0) }
-                        ), format: .number.precision(.fractionLength(1)))
+                        TextField("Line height", value: $lineHeight[clampedTo: 1...3, fallback: 1], format: .number.precision(.fractionLength(1)))
                         .labelsHidden()
                         .multilineTextAlignment(.trailing)
                         .frame(width: 56)
@@ -362,10 +355,7 @@ struct EditorSettingsView: View {
                 }
                 LabeledContent("Letter spacing") {
                     HStack {
-                        TextField("Letter spacing", value: Binding(
-                            get: { EditorFont.clampedLetterSpacing(letterSpacing) },
-                            set: { letterSpacing = EditorFont.clampedLetterSpacing($0) }
-                        ), format: .number.precision(.fractionLength(2)))
+                        TextField("Letter spacing", value: $letterSpacing[clampedTo: EditorFont.letterSpacingRange, fallback: 1], format: .number.precision(.fractionLength(2)))
                         .labelsHidden()
                         .multilineTextAlignment(.trailing)
                         .frame(width: 56)

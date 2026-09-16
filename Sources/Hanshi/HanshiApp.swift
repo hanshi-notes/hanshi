@@ -10,7 +10,7 @@ struct HanshiApp: App {
         Window("Hanshi", id: "library") {
             LibraryScreen()
                 .environment(store)
-                .background(LibraryWindowAttachment(lifecycle: lifecycle, isEdited: store.hasUnsavedChanges))
+                .background(LibraryWindowStatusView(lifecycle: lifecycle, store: store))
                 .frame(minWidth: 1020, minHeight: 580)
                 .task {
                     lifecycle.store = store

@@ -134,23 +134,36 @@ nonisolated final class WindowDelegateProxy: NSObject, NSWindowDelegate {
     }
 }
 
+struct LibraryWindowStatusView: View {
+    let lifecycle: LibraryLifecycle
+    let store: NoteStore
+
+    var body: some View {
+        LibraryWindowAttachment(lifecycle: lifecycle, isEdited: store.hasUnsavedChanges)
+    }
+}
+
 struct LibraryWindowAttachment: NSViewRepresentable {
     let lifecycle: LibraryLifecycle
     let isEdited: Bool
 
     func makeNSView(context: Context) -> AttachmentView {
-        AttachmentView(lifecycle: lifecycle)
+        AttachmentView(lifecycle: lifecycle, isEdited: isEdited)
     }
 
     func updateNSView(_ view: AttachmentView, context: Context) {
-        view.window?.isDocumentEdited = isEdited
+        view.isEdited = isEdited
     }
 
     final class AttachmentView: NSView {
         let lifecycle: LibraryLifecycle
+        var isEdited: Bool {
+            didSet { window?.isDocumentEdited = isEdited }
+        }
 
-        init(lifecycle: LibraryLifecycle) {
+        init(lifecycle: LibraryLifecycle, isEdited: Bool) {
             self.lifecycle = lifecycle
+            self.isEdited = isEdited
             super.init(frame: .zero)
         }
 
@@ -158,7 +171,10 @@ struct LibraryWindowAttachment: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if let window { lifecycle.attach(to: window) }
+            if let window {
+                lifecycle.attach(to: window)
+                window.isDocumentEdited = isEdited
+            }
         }
     }
 }

@@ -98,6 +98,7 @@ struct LibraryScreen: View {
     }
 
     var body: some View {
+        @Bindable var store = store
         libraryLayout
         .task(id: noteID) { await openSelectedNote() }
         .onChange(of: mode) { focusSelectedNote() }
@@ -147,26 +148,17 @@ struct LibraryScreen: View {
         .sheet(item: $renamingNotebook) { notebook in notebookNameSheet(notebook) }
         .sheet(isPresented: $showingDestinationSheet) { destinationSheet }
         .sheet(item: $renamingNote) { note in renameNoteSheet(note) }
-        .confirmationDialog("Move this note to the Trash?", isPresented: Binding(
-            get: { trashingNote != nil },
-            set: { if !$0 { trashingNote = nil } }
-        ), presenting: trashingNote) { note in
+        .confirmationDialog("Move this note to the Trash?", isPresented: $trashingNote.isPresented, presenting: trashingNote) { note in
             Button("Move to Trash", role: .destructive) { Task { await store.trash(note) } }
         } message: { note in
             Text("\(note.name) will be moved to the Trash. Any unsaved changes will be saved first.")
         }
-        .confirmationDialog("Move this notebook to the Trash?", isPresented: Binding(
-            get: { trashingNotebook != nil },
-            set: { if !$0 { trashingNotebook = nil } }
-        ), presenting: trashingNotebook) { notebook in
+        .confirmationDialog("Move this notebook to the Trash?", isPresented: $trashingNotebook.isPresented, presenting: trashingNotebook) { notebook in
             Button("Move to Trash", role: .destructive) { Task { await store.trash(notebook) } }
         } message: { notebook in
             Text("The folder \(notebook.name) and all its contents will be moved to the Trash. Unsaved notes will be saved first.")
         }
-        .alert("Library Error", isPresented: Binding(
-            get: { store.errorMessage != nil },
-            set: { if !$0 { store.errorMessage = nil } }
-        )) {
+        .alert("Library Error", isPresented: $store.errorMessage.isPresented) {
             Button("Retry") { Task { await store.refresh() } }
             Button("OK", role: .cancel) { }
         } message: { Text(store.errorMessage ?? "") }
@@ -428,9 +420,7 @@ struct LibraryScreen: View {
                         .help(notebook?.name ?? "All Notes")
                     }
                     toolbarGroup {
-                        toolbarButton("Save (⌘S)", icon: document?.isModified == true ? "square.and.arrow.down.fill" : "square.and.arrow.down",
-                                      action: document.map { document in { Task { await document.save() } } })
-                        .disabled(document?.isModified != true || document?.isSaving == true)
+                        SaveNoteButton(document: document)
                         toolbarDivider
                         toolbarButton("Edit", icon: "highlighter", active: mode != .preview) {
                             mode = mode == .preview ? .source : .preview
@@ -697,4 +687,16 @@ struct LibraryScreen: View {
 
 #Preview {
     LibraryScreen().environment(NoteStore(root: URL(filePath: "/tmp/HanshiPreview")))
+}
+
+struct SaveNoteButton: View {
+    let document: NoteDocument?
+
+    var body: some View {
+        BarButton(title: "Save (⌘S)",
+                  icon: document?.isModified == true ? "square.and.arrow.down.fill" : "square.and.arrow.down") {
+            if let document { Task { await document.save() } }
+        }
+        .disabled(document?.isModified != true || document?.isSaving == true)
+    }
 }

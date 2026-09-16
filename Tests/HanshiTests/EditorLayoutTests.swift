@@ -12,7 +12,8 @@ extension AppKitWindowTests {
             _, _, _ in throw CocoaError(.fileWriteUnknown)
         }
         let lifecycle = LibraryLifecycle()
-        let host = LayoutHostingView(rootView: layoutContent(document: document, lifecycle: lifecycle, mode: .source))
+        let preview = MarkdownPreviewSession()
+        let host = LayoutHostingView(rootView: layoutContent(document: document, lifecycle: lifecycle, preview: preview, mode: .source))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500),
                               styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: .aqua)
@@ -22,11 +23,11 @@ extension AppKitWindowTests {
         window.isReleasedWhenClosed = false
         window.contentView = host
         window.orderFront(nil)
-        defer { window.contentView = nil; window.close() }
+        defer { preview.hide(); window.contentView = nil; window.close() }
 
         for (width, mode) in [(1440.0, Hanshi.ContentMode.source), (1020, .source), (1600, .split), (1100, .split), (1020, .preview), (1020, .source)] {
             let before = host.constraintUpdates
-            host.rootView = layoutContent(document: document, lifecycle: lifecycle, mode: mode)
+            host.rootView = layoutContent(document: document, lifecycle: lifecycle, preview: preview, mode: mode)
             window.setContentSize(NSSize(width: width, height: 500))
             window.contentView?.layoutSubtreeIfNeeded()
             if let split = findSplitView(in: host) {
@@ -69,14 +70,14 @@ extension AppKitWindowTests {
     }
 }
 
-@MainActor private func layoutContent(document: NoteDocument, lifecycle: LibraryLifecycle, mode: Hanshi.ContentMode) -> some View {
+@MainActor private func layoutContent(document: NoteDocument, lifecycle: LibraryLifecycle, preview: MarkdownPreviewSession, mode: Hanshi.ContentMode) -> some View {
     GeometryReader { geometry in
         HSplitView {
             Color.gray.frame(minWidth: 140, idealWidth: geometry.size.width * 0.212, maxWidth: 440).ignoresSafeArea(.container, edges: .top)
             Color.white.frame(minWidth: 180, idealWidth: geometry.size.width * 0.272, maxWidth: 560).ignoresSafeArea(.container, edges: .top)
             VStack(spacing: 0) {
                 Color.gray.frame(height: 38)
-                NoteEditorContentView(document: document, files: LibraryFiles(root: URL(filePath: "/unused")), mode: mode)
+                NoteEditorContentView(document: document, files: LibraryFiles(root: URL(filePath: "/unused")), mode: mode, preview: preview)
             }
             .frame(minWidth: 450, idealWidth: geometry.size.width * 0.516)
             .ignoresSafeArea(.container, edges: .top)

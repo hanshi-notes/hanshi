@@ -4,9 +4,9 @@ import Observation
 import MarkdownEngine
 
 @Observable final class MarkdownPreviewSession {
-    let scrollView: NSScrollView
-    let textView: NSTextView
-    @ObservationIgnored let engine: NativeTextViewCoordinator
+    var scrollView: NSScrollView { native.scrollView }
+    var textView: NSTextView { native.engine.textView! }
+    var engine: NativeTextViewCoordinator { native.engine }
     private(set) var message: String?
     private(set) var isRendering = false
     private(set) var appliedSnapshot: PreviewSnapshot?
@@ -34,16 +34,21 @@ import MarkdownEngine
          }) {
         self.debounce = debounce
         self.renderer = renderer
+    }
+
+    // State may construct discarded sessions when its view is recreated. Build AppKit only on use.
+    @ObservationIgnored private lazy var native: (scrollView: NSScrollView, engine: NativeTextViewCoordinator) = {
         let wrapper = NativeTextViewWrapper(text: .constant(""), configuration: PreviewTheme().engineConfiguration, isEditable: false)
-        engine = wrapper.makeCoordinator()
-        scrollView = wrapper.makeAppKitView(coordinator: engine)
-        textView = engine.textView!
+        let engine = wrapper.makeCoordinator()
+        let scrollView = wrapper.makeAppKitView(coordinator: engine)
+        let textView = engine.textView!
         textView.allowsUndo = false
         textView.usesFontPanel = false
         textView.backgroundColor = .white
         textView.setAccessibilityLabel("Markdown preview")
         engine.onOpenLink = { [weak self] target in self?.followLink(target) }
-    }
+        return (scrollView, engine)
+    }()
 
     func show(_ snapshot: PreviewSnapshot, document: NoteDocument? = nil) {
         self.document = document

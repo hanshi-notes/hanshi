@@ -8,7 +8,7 @@ struct NoteEditorContentView: View {
     var libraryID: UUID? = nil
     var resourceGeneration = 0
     var noteURLs: [URL] = []
-    @State var preview = MarkdownPreviewSession()
+    let preview: MarkdownPreviewSession
     @State private var confirmingReload = false
 
     var body: some View {
