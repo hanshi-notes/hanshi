@@ -330,8 +330,61 @@ private var visibleNotes: [Note] {
 }
 ```
 
-If the calculation becomes expensive, profile it with Instruments before
-caching.
+### The Trigger for Caching Is the Dependency, Not the Cost
+
+"Cache it once it gets expensive" is the natural criterion and it is the wrong
+one. A derivation can be free to run and still cost you every repaint, because
+reading it through a computed property registers a dependency on **everything
+the property body touched**.
+
+**Verified** (Swift 6.2.4, SDK 26.2, macOS 14 deployment target, raw
+`withObservationTracking`, one fresh registration per row):
+
+| `currentUser` is | Edit applied | Fires? |
+|---|---|---|
+| a computed property over `users` | `users[0].name = …`, an unrelated element | **yes** |
+| a stored property recomputed in `didSet` | `users[0].name = …`, an unrelated element | no |
+
+`first(where:)` over three elements costs nothing to run, and Instruments will
+never point at it. What it costs is **scope**: every view reading
+`store.currentUser` repaints when any user is edited. Profiling the computation
+answers the wrong question.
+
+The mechanism — a computed property establishes its dependencies transitively —
+belongs to `swiftui-expert-skill` (`references/state-management.md`) and is not
+repeated here. The decision is:
+
+- **Derive by default.** One source of truth, and no update rule to forget.
+- **Cache when the dependency is wider than what the view reads**, not when the
+  computation is slow. Both are measured, but with different instruments: the
+  first with invalidation counts, the second with a profiler.
+
+### If You Do Cache, Every Input Carries the Update
+
+The cache has exactly one failure mode, and it is neither of the two that
+intuition predicts. Same toolchain and date:
+
+| Predicted hazard | Measured |
+|---|---|
+| Assignments in `init` skip `didSet`, so a model built with data starts stale | **Does not happen.** `@Observable` rewrites the stored property as a computed one, so the `init` assignment goes through the setter and the observer runs |
+| Editing an element in place (`users[0].name = …`) skips `didSet` | **Does not happen.** The array is a value type, so a subscript write is a write to the property |
+| An input joins the derivation without its own `didSet` | **Happens, silently.** No warning, no crash — the cached value simply stops matching its inputs |
+
+```swift
+// Wrong — `showInactive` participates in the derivation but carries no update.
+// Measured: flipping it leaves `currentUser` at its previous value.
+var users: [User] = []        { didSet { recompute() } }
+var currentUserID: User.ID?   { didSet { recompute() } }
+var showInactive = false      // ← no didSet, and nothing tells you
+```
+
+A cache is therefore not one decision but a standing obligation: **every
+property the derivation reads carries the update**, and every new input is a
+chance to forget. That is what is being traded for the narrower dependency, and
+why it is an optimization with evidence behind it rather than a starting shape.
+When you do cache, make the derived type `Equatable` so a recompute that lands
+on the same value notifies nobody
+([observation.md](observation.md#4-assigning-an-equal-value-does-not-notify)).
 
 ### Important Nuance: Derive Data, Not Views
 
@@ -354,8 +407,14 @@ concrete things:
 1. **You can’t preview** that UI piece separately.
 2. **You can’t reuse** it in another screen; you’d have to copy‑paste.
 3. **It hinders the diffing engine**: a property has no identity of its own, so
-   it is re-evaluated with its parent. A separate `struct View` may skip the
-   redraw when its inputs have not changed.
+   it is re-evaluated with its parent. A separate `struct View` is skipped when
+   its inputs have not changed. **Measured**, with the parent re-evaluated 50
+   times for a reason the section does not read: a computed property ran
+   **50** times, a `@ViewBuilder` function **50**, a `View` struct **0**.
+   Identical in Release and Debug, and at N = 20; macOS 15.8, Xcode 26.3
+   (SDK 26.2), Swift 6.2.4, deployment target macOS 14, 2026-09-17. The struct
+   is skipped only if its inputs compare equal, which is why
+   [what you pass it](previews.md#1-narrow-inputs-not-full-models) matters.
 
 If a piece of `body` deserves a name, it deserves to be a `View`. See
 [view-composition.md](view-composition.md).

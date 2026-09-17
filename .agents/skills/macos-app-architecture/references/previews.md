@@ -40,6 +40,29 @@ practical rule is to pass the model when it is a dependency-free value
 `struct`—such as a well-designed `Note`—and break it apart as soon as the type
 drags in services, a persistence context, or networking.
 
+**What passing the whole struct costs — measured.** SwiftUI compares a view's
+value-type inputs field by field, so a row handed `note:` re-evaluates when *any*
+field of that note changes, including fields it never reads. Child `body`
+evaluations while the parent re-evaluates 50 times; macOS 15.8, Xcode 26.3
+(SDK 26.2), Swift 6.2.4, deployment target macOS 14, 2026-09-17. Identical in
+Release and Debug, and at N = 20:
+
+| The row receives | What changes | Row evaluations |
+|---|---|---|
+| `title:` | `body`, which the row does not read | 0 |
+| `note:` | `body`, which the row does not read | **50** |
+| `note:`, in a `ForEach` of 10 | `notes[0].body` | **50** — the edited row only, not 500 |
+| `note:` | nothing; the parent re-evaluates for another reason | 0 |
+
+Making the struct `Equatable` changed no row. This is SwiftUI comparing view
+inputs, a different layer from
+[`@Observable`'s own deduplication](observation.md#4-assigning-an-equal-value-does-not-notify).
+
+So the caveat stands, with a price attached: **one row body per change to that
+row's element**. Accept it by default. Break the struct apart when the element
+changes at a high rate — a model the editor writes on every keystroke, a
+progress value — which is Quick Rule 6 applied to a view's inputs.
+
 **When the parameter list really does grow**, the answer is not to return to the
 entire model. Recognize the *data clump* smell: a group of values that **always
 travel together** is a type you have not written yet.

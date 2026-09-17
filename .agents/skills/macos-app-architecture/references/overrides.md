@@ -59,6 +59,50 @@ contradicts itself two sections later—`performance-patterns.md:375-385`
 2026-08-31. Re-read at 5.0.0 on 2026-09-15: the snippet is unchanged, only its
 lines moved. `onChange(of:initial:)` semantics per Apple's documentation.
 
+**The same claim, from Apple**: the `swiftui-specialist` skill bundled with
+Xcode 27 makes the identical recommendation — `references/dataflow.md`, *"Cache
+derived `@Observable` values; computed properties still establish dependencies
+transitively"* — under a frontmatter declaring that it "unconditionally
+supersedes any prior training". Its shape is the better one: the cache lives on
+the model and updates from `didSet`, so the `onChange(of:initial:)` defect above
+does not apply to it. That retires one of this override's two reasons and leaves
+the other standing.
+
+**What the measurement changed**: the mechanism is real. A computed property
+over a collection does invalidate on every element edit, and the cached property
+does not. So the disagreement is not about whether caching works — it is about
+what triggers it. Apple's file presents the cache as *the* fix for a computed
+property; this skill treats it as an optimization with a named, permanent cost:
+every input feeding the derivation must carry its own update. Both sides of
+that, plus the two predicted hazards that turned out not to exist, are in
+[antipatterns.md](antipatterns.md#the-trigger-for-caching-is-the-dependency-not-the-cost).
+
+**Verified**: measured 2026-09-16 on Swift 6.2.4, SDK 26.2, macOS 14 deployment
+target, at the raw `withObservationTracking` API. `swiftui-specialist` read at
+the Xcode 27.2 repack of the same date. It is not installed, and this entry does
+not ask for it to be — see
+[SKILL.md](../SKILL.md#deliberately-not-installed).
+
+### Passing a whole value struct to a view
+
+**Claim**: `swiftui-expert-skill` → `references/state-management.md:362-386`
+("Pass only the fields a view reads") marks a child that accepts an entire
+struct as AVOID, because it re-evaluates when any field changes.
+
+**Our approach**: pass the struct when it is a dependency-free value; split it
+when the element changes at a high rate. See
+[previews.md](previews.md#1-narrow-inputs-not-full-models).
+
+**Reason**: design disagreement about the threshold, not the mechanism. The
+mechanism is confirmed: a row handed `note:` re-evaluated on all 50 changes to a
+field it never read, and a `title:` row on none. But the cost is bounded to the
+row whose element changed — a `ForEach` of 10 cost 50 evaluations, not 500 — while
+a parameter per displayed field is paid at every call site and in every preview.
+One row body per change is not worth that unless changes are frequent.
+
+**Verified**: measured 2026-09-17, macOS 15.8, Xcode 26.3 (SDK 26.2), Swift
+6.2.4, deployment target macOS 14, Release and Debug. Read at 5.0.0 (`00a94e1`).
+
 ---
 
 ## Nuances (Not Overrides)
@@ -103,6 +147,40 @@ A 1 is a single extra evaluation on the first update. It does not grow with N.
   (Quick Rule 5's `onEvent`) cost one evaluation, once. Do not stretch the two
   rules above to cover it. Content closures (`view-structure.md:359`, "Avoid
   Closure-Based Content") were **not measured**.
+
+One claim about `@Entry` defaults, **compiled** rather than measured, because the
+question was whether its fix builds: `environment-patterns.md:95-124` ("Keep
+Default Values Stable"). Swift 6.2.4 (Xcode 26.3, SDK 26.2), Swift 6 language
+mode, deployment target macOS 14, 2026-09-17.
+
+The premise holds. `-dump-macro-expansions` shows `@Entry var model = Model()`
+expanding to a computed getter, `static var defaultValue { get { Model() } }`: a
+new instance on every fallback read. The fix does not compile where the problem
+does:
+
+| `Model` is | `= Model()` | `static let defaultModel = Model()` (the fix) | `Model?`, `nil` default |
+|---|---|---|---|
+| `@MainActor @Observable`, explicit `init` | ✗ | ✗ | ✓ |
+| A non-`Sendable` class, `@Observable` or not | **✓** | ✗ | ✓ |
+| Either, with `.defaultIsolation(MainActor.self)` | ✓ | ✓ | not tested |
+
+The errors are `main actor-isolated default value in a nonisolated context` and
+`static property 'defaultModel' is not concurrency-safe because non-'Sendable'
+type 'Model' may have shared mutable state`. A file-scope `private let` fails the
+same way. A `@MainActor` class with a synthesized `init` compiles in all three,
+because a synthesized `init` is nonisolated.
+
+- **Stable defaults: adopted, fix narrowed.** Not an override: the rule is right,
+  its fix is incomplete. Nothing here hits it, because
+  [architecture.md](architecture.md#dependency-injection-three-mechanisms-one-rule)
+  sends an `@Observable` store through `.environment(store)`, which has no
+  default, and keeps `@Entry` for stateless values (`FileNoteRepository()` and
+  `NavigateAction()` are structs). If a reference type does end up in `@Entry`,
+  give it a `nil` default. The `static let` compiles only under `MainActor`
+  default isolation, and whether SwiftUI reading that `@MainActor` static off the
+  main actor traps like
+  [a hand-written key](antipatterns.md#a-callback-or-key-that-silently-inherits-mainactor)
+  was **not measured**.
 
 ### From `swiftui-performance-audit`
 

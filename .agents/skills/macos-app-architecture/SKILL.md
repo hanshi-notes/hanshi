@@ -3,7 +3,7 @@ name: macos-app-architecture
 description: Architecture and patterns for native macOS apps built with SwiftUI and AppKit—MV vs. MVVM, bounded-context stores, Environment, Screen/View naming, enum-based event grouping, communication between stores, bridging to imperative AppKit views, when to split the app into SwiftPM modules, running external processes under the App Sandbox, and the decisions behind distributing and auto-updating an app outside the Mac App Store. Use when designing a macOS app's structure, deciding where state belongs, creating a store or view, wrapping an NSView in SwiftUI, or planning distribution and Sparkle updates. Includes anti-patterns with examples of what not to do.
 license: MIT
 metadata:
-  version: 3.2.0
+  version: 3.4.0
 ---
 
 # macOS App Architecture (SwiftUI + AppKit)
@@ -165,6 +165,23 @@ npx skills@latest add sitapix/apple-text --skill txt-nstextstorage
   iOS navigation-stack problem that does not exist in a macOS split view. See
   [navigation.md](references/navigation.md).
 - **SwiftData skills** — this architecture keeps the file system as the model.
+- **Apple's Xcode 27 bundled skills** (repacked at `artemnovichkov/xcode-skills`)
+  — fifteen skills extracted verbatim from Xcode 27. Reviewed 2026-09-16, none
+  adopted. `swiftui-specialist` covers the ground `swiftui-expert-skill` 5.0.0
+  already holds — and 5.0.0 has absorbed the Xcode 27 material (`@ContentBuilder`,
+  `reorderable`, the `Document` APIs, item-bound alerts) — so installing both
+  puts two voices on one subject; `modernize-tests` duplicates
+  `swift-testing-expert`; `audit-xcode-security-settings` requires the Xcode MCP
+  tools and an `.xcodeproj`, which a SwiftPM app does not have;
+  `device-interaction`, `translation` and `translation-coordinator` require
+  `xcrun mcpbridge` from Xcode 27; the rest target UIKit, C, or iOS-only
+  surfaces. Their content is Apple's, redistributed without a license: cite it,
+  never copy it into this skill. Where one of them disagrees with this skill, the
+  disagreement is recorded in
+  [overrides.md](references/overrides.md) like any other. The one worth
+  installing on its own merits, if accessibility becomes a concern, is
+  `accessibility-voiceover-specialist` — the only one with real AppKit coverage,
+  on a subject this skill does not touch and therefore does not arbitrate.
 
 If content in those skills is **outdated or unsuitable**, do not debate it in
 the abstract. Record the override in [overrides.md](references/overrides.md),

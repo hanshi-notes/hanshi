@@ -17,7 +17,7 @@
       "source": "gerardp/macos-architecture-skills",
       "sourceType": "github",
       "skillPath": ".agents/skills/macos-app-architecture/SKILL.md",
-      "computedHash": "a92c1bb41f8eb6859dc33551524b1fbdcd5afe4cdd24594a3693a631a823012f"
+      "computedHash": "497d95b24fd826df921d2377811484e74d3a3fb90cb32edfae7224b3ddcd51a4"
     },
     "macos-spm-app-packaging": {
       "source": "Dimillian/Skills",
