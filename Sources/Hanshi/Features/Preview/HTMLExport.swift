@@ -50,7 +50,7 @@ nonisolated enum HTMLExport {
         }
         cmark_iter_free(iterator)
         var budget = Budget()
-        var slugs: Set<String> = []
+        var slugs = HeadingSlugs()
         for node in nodes {
             try Task.checkCancellation()
             let kind = String(cString: cmark_node_get_type_string(node))
@@ -103,11 +103,7 @@ nonisolated enum HTMLExport {
             case "heading":
                 guard let plain = cmark_render_plaintext(node, CMARK_OPT_DEFAULT, 0) else { break }
                 defer { free(plain) }
-                let base = MarkdownRenderer.slug(String(cString: plain).trimmingCharacters(in: .whitespacesAndNewlines))
-                var slug = base
-                var suffix = 1
-                while slugs.contains(slug) { slug = "\(base)-\(suffix)"; suffix += 1 }
-                slugs.insert(slug)
+                let slug = slugs.claim(MarkdownRenderer.slug(String(cString: plain).trimmingCharacters(in: .whitespacesAndNewlines)))
                 guard let anchor = cmark_node_new(CMARK_NODE_HTML_INLINE) else { break }
                 cmark_node_set_literal(anchor, "<a id=\"\(escape(slug))\"></a>")
                 if cmark_node_prepend_child(node, anchor) == 0 { cmark_node_free(anchor) }

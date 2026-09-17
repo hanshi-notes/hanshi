@@ -10,58 +10,23 @@ import Testing
         NoteDocument(note: Note(id: id, url: root.appendingPathComponent("\(id).md")),
                      contents: NoteContents(data: Data(text.utf8), text: text, fileID: id)) { _, _, _ in throw CocoaError(.fileWriteUnknown) }
     }
-    static func composition(_ text: String) async throws -> MarkdownComposition {
-        try await MarkdownRenderer.compose(try MarkdownRenderer.parse(text), theme: PreviewTheme())
-    }
 }
 
-@Test @MainActor func previewRendersNestedTraitsWithoutLosingText() async throws {
-    let result = try await PreviewTestFixtures.composition("# Heading **bold**\n\nPlain **bold and *italic*** with [**link**](https://example.com) and ~~gone~~.\n\n- **item**\n")
-    #expect(result.text.string.contains("Plain bold and italic with link and gone."))
+@Test @MainActor func previewRendersNestedTraitsAndHeadingAnchors() async throws {
+    let session = MarkdownPreviewSession(debounce: .zero)
+    session.show(PreviewTestFixtures.snapshot("# Heading **bold**\n\nPlain **bold and *italic*** with [**link**](https://example.com) and ~~gone~~.\n\n- **item**\n"))
+    await session.waitForRendering()
+    defer { session.hide() }
+    let storage = try #require(session.textView.textStorage)
     for word in ["bold", "italic", "link", "item"] {
-        let range = (result.text.string as NSString).range(of: word, options: .backwards)
-        let font = try #require(result.text.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont)
-        #expect(NSFontManager.shared.traits(of: font).contains(.boldFontMask))
+        let range = (storage.string as NSString).range(of: word, options: .backwards)
+        let font = try #require(storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont)
+        #expect(NSFontManager.shared.traits(of: font).contains(.boldFontMask), "\(word) must be bold")
         if word == "italic" { #expect(NSFontManager.shared.traits(of: font).contains(.italicFontMask)) }
     }
-    let gone = (result.text.string as NSString).range(of: "gone")
-    #expect(result.text.attribute(.strikethroughStyle, at: gone.location, effectiveRange: nil) as? Int == 1)
-    #expect(result.anchors.contains { $0.heading == "heading-bold" })
-}
-
-@Test @MainActor func previewTasksListsTablesAndLiteralHTML() async throws {
-    let result = try await PreviewTestFixtures.composition("""
-    3. Three
-    4. Four
-
-    - [ ] Pending
-    - [x] Done
-      - [X] Nested
-
-    Text [x] is not a task.
-
-    | Name | Amount |
-    | :--- | ---: |
-    | **Tea** | 2 |
-    | | 3 |
-
-    <script>alert('literal')</script>
-    """)
-    #expect(result.text.string.contains("3. Three"))
-    #expect(result.text.string.contains("4. Four"))
-    #expect(result.text.string.contains("\u{fffc} Pending"))
-    #expect(result.text.string.contains("\u{fffc} Done"))
-    #expect(result.text.string.contains("\u{fffc} Nested"))
-    #expect(result.text.string.contains("Text [x] is not a task."))
-    #expect(result.text.string.contains("<script>alert('literal')</script>"))
-    let tea = (result.text.string as NSString).range(of: "Tea")
-    let style = try #require(result.text.attribute(.paragraphStyle, at: tea.location, effectiveRange: nil) as? NSParagraphStyle)
-    let cell = try #require(style.textBlocks.first as? NSTextTableBlock)
-    #expect(cell.table.numberOfColumns == 2)
-    #expect(cell.startingRow == 1 && cell.startingColumn == 0)
-    let amount = (result.text.string as NSString).range(of: "2")
-    let amountStyle = try #require(result.text.attribute(.paragraphStyle, at: amount.location, effectiveRange: nil) as? NSParagraphStyle)
-    #expect(amountStyle.alignment == .right)
+    let gone = (storage.string as NSString).range(of: "gone")
+    #expect(storage.attribute(.strikethroughStyle, at: gone.location, effectiveRange: nil) as? Int == 1)
+    #expect(session.composition?.anchors.contains { $0.heading == "heading-bold" } == true)
 }
 
 @Test(arguments: [
@@ -72,17 +37,18 @@ import Testing
     ("html", "<div class=\"x\">Hello</div>", "name"), ("css", "p { color: red; }", "attribute")
 ]) func previewHighlightsWholeCodeBlocks(language: String, code: String, expected: String) throws {
     let recipe = try MarkdownRenderer.parse("Before\n\n```\(language)\n\(code)\n```\n")
-    let run = try #require(recipe.runs.first { !$0.tokens.isEmpty })
-    #expect(run.text == code + "\n")
-    #expect(run.tokens.contains { $0.scope.contains(expected) })
-    #expect(run.tokens.allSatisfy { $0.range.location >= 0 && $0.range.upperBound <= run.text.utf16.count })
+    // Keyed by the block's code, as the engine asks for it.
+    let tokens = try #require(recipe.code[code + "\n"])
+    #expect(recipe.code.count == 1)
+    #expect(tokens.contains { $0.scope.contains(expected) })
+    #expect(tokens.allSatisfy { $0.range.location >= 0 && $0.range.upperBound <= (code + "\n").utf16.count })
 }
 
 @Test(arguments: ["", "not-a-language"]) func previewUnknownCodePreservesOriginal(language: String) throws {
     let code = "\"quotes\" `ticks` </script> 😀 漢字"
     let recipe = try MarkdownRenderer.parse("```\(language)\n\(code)\n```")
-    #expect(recipe.text == code + "\n")
-    #expect(recipe.runs.allSatisfy { $0.tokens.isEmpty })
+    #expect(recipe.code.isEmpty)
+    #expect(recipe.media.isEmpty)
 }
 
 @Test func previewSourceMapPreservesUnicodeAndCRLF() throws {
@@ -91,42 +57,36 @@ import Testing
     #expect(lines.offsets[1] == 5)
     #expect((text as NSString).substring(with: lines.range(start: 2, end: 2)) == "title: 😀\r\n")
     let recipe = try MarkdownRenderer.parse(text)
-    #expect(recipe.text.hasPrefix("---\r\ntitle: 😀\r\n---\r\n"))
+    #expect(recipe.anchors.first?.source == lines.range(start: 1, end: 3), "Front matter is its own anchor")
     let heading = try #require(recipe.anchors.first { $0.heading == "漢字" })
     #expect(heading.source == lines.range(start: 4, end: 4))
-    #expect(recipe.anchors.allSatisfy { $0.source.upperBound <= text.utf16.count && $0.rendered.upperBound <= recipe.text.utf16.count })
-    let row = recipe.anchors.filter { $0.source == lines.range(start: 10, end: 10) }
-    #expect(row.count >= 2)
-    #expect(Set(row.map(\.rendered.location)).count >= 2)
+    #expect(recipe.anchors.contains { $0.source == lines.range(start: 6, end: 6) }, "Indented code line")
+    #expect(recipe.anchors.contains { $0.source == lines.range(start: 10, end: 10) }, "Table row")
+    #expect(recipe.anchors.allSatisfy { $0.source.upperBound <= text.utf16.count && $0.rendered == $0.source })
 }
 
 @Test func previewDuplicateUnicodeHeadingsAndIncompleteFrontMatter() throws {
     let recipe = try MarkdownRenderer.parse("# Café 世界\n\n# Café 世界\n\n# Café 世界-1\n")
     #expect(recipe.anchors.compactMap(\.heading) == ["café-世界", "café-世界-1", "café-世界-1-1"])
-    #expect(try MarkdownRenderer.parse("---\ntitle: unclosed").text.contains("title: unclosed"))
-    #expect(try MarkdownRenderer.parse("").text.isEmpty)
+    // Unclosed front matter is ordinary Markdown: a rule, then a paragraph.
+    #expect(try MarkdownRenderer.parse("---\ntitle: unclosed").anchors.map(\.source) == [NSRange(location: 0, length: 4), NSRange(location: 4, length: 15)])
+    #expect(try MarkdownRenderer.parse("").anchors.isEmpty)
 }
 
 @Test(arguments: ["![Logo][logo]\n\n[logo]: picture.png", "![logo][]\n\n[logo]: picture.png", "![LoGo]\n\n[logo]: picture.png"])
 func previewResolvesReferenceImages(source: String) throws {
     let recipe = try MarkdownRenderer.parse(source)
-    let media = try #require(recipe.runs.compactMap(\.media).first)
-    guard case let .image(target, _) = media else { Issue.record("Expected an image"); return }
+    let media = try #require(recipe.media.first)
+    guard case let .image(target) = media.kind else { Issue.record("Expected an image"); return }
     #expect(target == "picture.png")
-    #expect(try MarkdownRenderer.parse("![missing][unknown]").text.contains("![missing][unknown]"))
+    #expect(try MarkdownRenderer.parse("![missing][unknown]").media.isEmpty)
 }
 
 @Test func mathSyntaxRespectsCodeEscapesCurrencyAndLinks() throws {
     let recipe = try MarkdownRenderer.parse(#"Inline $x_1 + \frac{a}{b}$ and \$escaped, $5 and $10. `$code$` [link](https://example.com/$path$). $$\begin{matrix}a&b\\c&d\end{matrix}$$"#)
-    let formulas = recipe.runs.compactMap { run -> String? in
-        if case let .math(latex, _) = run.media { return latex }; return nil
-    }
-    #expect(formulas == [#"x_1 + \frac{a}{b}"#, #"\begin{matrix}a&b\\c&d\end{matrix}"#])
-    #expect(recipe.text.contains("$escaped, $5 and $10."))
-    #expect(recipe.text.contains("$code$"))
-    #expect(recipe.runs.contains { $0.link == "https://example.com/$path$" })
-    #expect(try MarkdownRenderer.parse("```latex\n$x$\n```\n\n<span title='$no$'>\n").runs.allSatisfy { $0.media == nil })
-    #expect(try MarkdownRenderer.parse("Unclosed $x and $$y").text.contains("$x"))
+    #expect(formulas(in: recipe) == [#"x_1 + \frac{a}{b}"#, #"\begin{matrix}a&b\\c&d\end{matrix}"#])
+    #expect(try MarkdownRenderer.parse("```latex\n$x$\n```\n\n<span title='$no$'>\n").media.isEmpty)
+    #expect(try MarkdownRenderer.parse("Unclosed $x and $$y").media.isEmpty)
 }
 
 @Test @MainActor func specializedEnginesProduceImagesAndVisibleErrors() async throws {
@@ -146,24 +106,30 @@ func previewResolvesReferenceImages(source: String) throws {
 
     $\\unknownHanshiCommand{x}$
     """
-    let recipe = try await MarkdownRenderer.render(PreviewTestFixtures.snapshot(source))
-    #expect(recipe.runs.compactMap(\.bitmap).count == 3)
-    #expect(recipe.runs.compactMap(\.bitmap).allSatisfy { $0.width > 1 && $0.height > 1 && !$0.data.isEmpty })
-    let result = try await MarkdownRenderer.compose(recipe, theme: PreviewTheme())
-    #expect(result.attachments.count == 3)
-    #expect(result.attachments.first?.baseline ?? 0 > 0)
-    #expect(result.text.string.contains("invalid diagram"))
-    #expect(result.text.string.contains("unknownHanshiCommand"))
+    let session = MarkdownPreviewSession(debounce: .zero)
+    session.show(PreviewTestFixtures.snapshot(source)); await session.waitForRendering()
+    defer { session.hide() }
+    let recipe = try #require(session.recipe)
+    #expect(recipe.media.compactMap(\.bitmap).count == 3)
+    #expect(recipe.media.compactMap(\.bitmap).allSatisfy { $0.width > 1 && $0.height > 1 && !$0.data.isEmpty })
     #expect(recipe.diagnostics.count == 2)
-    #expect(result.anchors.allSatisfy { $0.rendered.upperBound <= result.text.length })
+    #expect(previewImages(in: session.textView).count == 3)
+    #expect(session.textView.string.contains("invalid diagram"))
+    #expect(session.textView.string.contains("unknownHanshiCommand"))
+    #expect(session.message?.components(separatedBy: " · ").count == 2)
+    let length = session.textView.textStorage?.length ?? 0
+    #expect(session.composition?.anchors.allSatisfy { $0.rendered.upperBound <= length } == true)
 }
 
 @Test func mathCannotConsumeALinkAfterCurrency() throws {
     let source = "$5 and $10 [link](https://example.com/$path$) then $x$"
-    let recipe = try MarkdownRenderer.parse(source)
-    #expect(recipe.text.contains("$5 and $10 link"))
-    #expect(recipe.runs.contains { $0.link == "https://example.com/$path$" })
-    #expect(recipe.runs.compactMap(\.media).count == 1)
+    #expect(formulas(in: try MarkdownRenderer.parse(source)) == ["x"])
+}
+
+@Test func mathLeavesLinkDestinationsIntactInExports() async throws {
+    let source = "$5 and $10 [link](https://example.com/$path$) then $x$"
+    let html = try await HTMLExport.document(text: source, url: URL(filePath: "/tmp/hanshi-math/Note.md"), root: URL(filePath: "/tmp/hanshi-math"))
+    #expect(html.contains("href=\"https://example.com/$path$\""))
 }
 
 @Test func previewLimitsPathologicalInputsWithoutLosingTheDocument() throws {
@@ -177,10 +143,49 @@ func previewResolvesReferenceImages(source: String) throws {
     let source = "> ```swift\n> let first = 1\n> let second = 2\n> ```\n"
     let recipe = try MarkdownRenderer.parse(source)
     let lines = MarkdownLineIndex(source)
-    for (line, visible) in [(2, "let first = 1\n"), (3, "let second = 2\n")] {
-        #expect(recipe.anchors.contains {
-            $0.source == lines.range(start: line, end: line)
-                && (recipe.text as NSString).substring(with: $0.rendered) == visible
-        })
+    for (line, visible) in [(2, "> let first = 1\n"), (3, "> let second = 2\n")] {
+        let anchor = recipe.anchors.first { $0.source == lines.range(start: line, end: line) }
+        #expect(anchor.map { (source as NSString).substring(with: $0.source) } == visible)
     }
+    #expect(recipe.code["let first = 1\nlet second = 2\n"] != nil)
+}
+
+private func formulas(in recipe: MarkdownRecipe) -> [String] {
+    recipe.media.compactMap { if case let .math(latex, _) = $0.kind { latex } else { nil } }
+}
+
+@Test func previewAnchorsEmptyBlocksAndKeepsImageAltTextOutOfHeadings() throws {
+    let source = "- \n\n#\n\n# Title ![alt $x$](a.png)\n\n![](b.png)\n"
+    let recipe = try MarkdownRenderer.parse(source)
+    let lines = MarkdownLineIndex(source)
+    // Each block anchors once, however many children it has.
+    #expect(recipe.anchors.filter { $0.source == lines.range(start: 1, end: 1) }.count == 1, "An empty list item")
+    #expect(recipe.anchors.filter { $0.source == lines.range(start: 3, end: 3) }.map(\.heading) == [""], "An empty heading")
+    #expect(recipe.anchors.compactMap(\.heading) == ["", "title-"])
+    let targets = recipe.media.compactMap { if case let .image(target) = $0.kind { target } else { nil } }
+    #expect(targets == ["a.png", "b.png"] && recipe.media.count == 2, "Each image once, nothing from its alt text")
+}
+
+/// A heading that already carries a suffix still pushes later repeats past it, in the preview and the export alike.
+@Test func repeatedHeadingsTakeTheFirstFreeSuffixInPreviewAndExport() async throws {
+    let source = "# A\n\n# A-2\n\n# A\n\n# A\n\n# A\n"
+    let expected = ["a", "a-2", "a-1", "a-3", "a-4"]
+    #expect(try MarkdownRenderer.parse(source).anchors.compactMap(\.heading) == expected)
+    let html = try await HTMLExport.document(text: source, url: URL(filePath: "/tmp/hanshi-slugs/Note.md"), root: URL(filePath: "/tmp/hanshi-slugs"))
+    let ids = html.components(separatedBy: "<a id=\"").dropFirst().map { String($0.prefix { $0 != "\"" }) }
+    #expect(ids == expected)
+}
+
+@Test(.enabled(if: ProcessInfo.processInfo.environment["HANSHI_PERF"] != nil))
+func repeatedHeadingSlugsScaleLinearly() throws {
+    func seconds(_ headings: Int) throws -> Double {
+        let text = String(repeating: "## Notes\n\n", count: headings)
+        let clock = ContinuousClock()
+        let elapsed = try clock.measure { _ = try MarkdownRenderer.parse(text) }.components
+        return Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+    }
+    let small = try seconds(2_000), large = try seconds(16_000)
+    print("HEADING_SLUGS small=\(small) large=\(large) ratio=\(large / small)")
+    // 8× the headings: linear reads about 8×, retrying every suffix from 1 about 64×.
+    #expect(large / small < 16)
 }

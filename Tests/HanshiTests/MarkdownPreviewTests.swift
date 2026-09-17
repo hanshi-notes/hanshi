@@ -13,7 +13,7 @@ private actor PreviewRenderGate {
             arrival?.resume(); arrival = nil
         }
         // Deliberately ignore cancellation, as a synchronous native engine may finish late.
-        return MarkdownRecipe(runs: [PreviewRun(text: snapshot.text)], anchors: [])
+        return MarkdownRecipe(anchors: [])
     }
     func waitForStart(_ count: Int) async {
         if started >= count { return }

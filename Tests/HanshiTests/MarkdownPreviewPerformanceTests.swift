@@ -29,13 +29,17 @@ import Testing
         let parseStart = clock.now
         let recipe = try await MarkdownRenderer.render(snapshot)
         let parseTime = parseStart.duration(to: clock.now)
-        let composeStart = clock.now
-        let composition = try await MarkdownRenderer.compose(recipe, theme: PreviewTheme())
-        let composeTime = composeStart.duration(to: clock.now)
-        #expect(composition.text.string.contains("Tea\n2"))
-        #expect(composition.anchors.allSatisfy { $0.rendered.upperBound <= composition.text.length })
-        #expect(composition.text.length > 0)
-        print("PREVIEW_BENCH bytes=\(text.utf8.count) runs=\(recipe.runs.count) anchors=\(recipe.anchors.count) parse_highlight=\(parseTime) compose=\(composeTime) longest_batch=\(composition.longestBatch) main_thread_text=\(composition.composedOnMainThread) font_builds=\(composition.fontBuildCount)")
+        // What the reader waits for: the same render again, then the engine styling the source.
+        let session = MarkdownPreviewSession(debounce: .zero)
+        let showStart = clock.now
+        session.show(snapshot); await session.waitForRendering()
+        let showTime = showStart.duration(to: clock.now)
+        let length = session.textView.textStorage?.length ?? 0
+        #expect(session.textView.string == text)
+        #expect(session.composition?.anchors.allSatisfy { $0.rendered.upperBound <= length } == true)
+        #expect(session.composition?.anchors.isEmpty == false)
+        print("PREVIEW_BENCH bytes=\(text.utf8.count) media=\(recipe.media.count) anchors=\(recipe.anchors.count) parse_highlight=\(parseTime) show=\(showTime)")
+        session.hide()
     }
 }
 

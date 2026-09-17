@@ -3,31 +3,6 @@ import SwiftUI
 import Testing
 @testable import Hanshi
 
-@Test @MainActor func previewCodeBlocksHavePaddingAndKeepSeparateBackgrounds() async throws {
-    let result = try await PreviewTestFixtures.composition("Body text.\n\n```swift\nlet first = 1\nlet second = 2\n```\n\n```\nOther block\n```\n\nInline `code`.")
-    func paragraph(_ word: String) throws -> NSParagraphStyle {
-        let range = (result.text.string as NSString).range(of: word)
-        return try #require(result.text.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)
-    }
-    let first = try #require(paragraph("let first").textBlocks.first)
-    let second = try #require(paragraph("let second").textBlocks.first)
-    let other = try #require(paragraph("Other block").textBlocks.first)
-    #expect(first === second)
-    #expect(first !== other)
-    #expect(first.width(for: .padding, edge: .minX) >= 10)
-    #expect((4...8).contains(first.width(for: .padding, edge: .minY)))
-    #expect((4...8).contains(first.width(for: .margin, edge: .minY)))
-    #expect(try paragraph("Inline").textBlocks.isEmpty)
-    let bodyFont = try #require(result.text.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
-    #expect(bodyFont.pointSize == 17)
-    // Leading lives in lineSpacing, not lineHeightMultiple: a multiple grows the line
-    // fragment and `.backgroundColor` fills all of it, so inline code would sit in a slab.
-    // The engine restyles this text when the preview is editable, so `EnginePreviewResources`
-    // carries the matching `paragraph.lineHeightExtraSpacing`; keep the two in step.
-    #expect(try paragraph("Body").lineSpacing >= 4)
-    #expect(try paragraph("Body").lineHeightMultiple == 0)
-}
-
 @Test @MainActor func previewTaskSymbolsRemainAccessibleAndCopyAsMarkdown() async throws {
     let session = MarkdownPreviewSession(debounce: .zero)
     defer { session.hide() }
@@ -41,30 +16,6 @@ import Testing
     defer { pasteboard.releaseGlobally() }
     #expect(session.textView.writeSelection(to: pasteboard, types: [.string, .rtf]))
     #expect(pasteboard.string(forType: .string) == "- [ ] Pending\n- [x] Done\n\nLiteral ☑ stays text.")
-}
-
-/// ⚠️ This calls `drawBackground` directly. The preview view runs on TextKit 2, whose
-/// layout never calls that TextKit 1 method, so the rounded corner does NOT reach the
-/// screen — the block renders square. Rounding it for real needs the engine's
-/// `MarkdownTextLayoutFragment.drawCodeBlockBackground`, which fills a plain rect.
-@Test @MainActor func previewCodeBackgroundHasRoundedCorners() throws {
-    let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 100, pixelsHigh: 60,
-        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
-        bytesPerRow: 0, bitsPerPixel: 0))
-    let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
-    NSGraphicsContext.saveGraphicsState()
-    defer { NSGraphicsContext.restoreGraphicsState() }
-    NSGraphicsContext.current = context
-    NSColor.white.setFill()
-    NSRect(x: 0, y: 0, width: 100, height: 60).fill()
-    PreviewCodeBlock().drawBackground(withFrame: NSRect(x: 10, y: 10, width: 80, height: 40),
-        in: NSView(), characterRange: NSRange(location: 0, length: 0), layoutManager: NSLayoutManager())
-    let corner = try #require(bitmap.colorAt(x: 11, y: 17)?.usingColorSpace(.deviceRGB))
-    let margin = try #require(bitmap.colorAt(x: 50, y: 11)?.usingColorSpace(.deviceRGB))
-    #expect(margin.redComponent > 0.99, "Outer margins must separate consecutive blocks")
-    let center = try #require(bitmap.colorAt(x: 50, y: 30)?.usingColorSpace(.deviceRGB))
-    #expect(corner.redComponent > 0.99, "The rounded corner must leave the page visible")
-    #expect((0.93...0.97).contains(center.redComponent), "The block must draw its gray background")
 }
 
 extension AppKitWindowTests {

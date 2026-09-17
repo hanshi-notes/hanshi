@@ -179,12 +179,11 @@ import MarkdownEngine
         textView.allowsUndo = textView.isEditable
         self.recipe = recipe
         // Markdown stays in place except for the engine's shortened wiki links.
-        let anchors = recipe.anchors.compactMap { anchor -> MarkdownAnchor? in
-            guard let displayed = engine.previewRange(fromSourceRange: anchor.source) else { return nil }
-            return MarkdownAnchor(source: anchor.source, rendered: displayed, heading: anchor.heading)
+        let displayed = engine.previewRanges(fromSourceRanges: recipe.anchors.map(\.source))
+        let anchors = zip(recipe.anchors, displayed).compactMap { anchor, range in
+            range.map { MarkdownAnchor(source: anchor.source, rendered: $0, heading: anchor.heading) }
         }
-        let result = MarkdownComposition(text: NSAttributedString(attributedString: textView.textStorage!),
-            anchors: anchors, attachments: [])
+        let result = MarkdownComposition(text: NSAttributedString(attributedString: textView.textStorage!), anchors: anchors)
         self.composition = result
         appliedSnapshot = snapshot
         message = recipe.diagnostics.isEmpty ? nil : Array(Set(recipe.diagnostics)).sorted().joined(separator: " · ")

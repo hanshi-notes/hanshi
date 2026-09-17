@@ -76,15 +76,15 @@ func previewResourcesBlockUnsafeDestinations(target: String) throws {
 @Test @MainActor func previewImageFallbackKeepsAltTextAndLaterAnchors() async throws {
     let fixture = try PreviewResourceFixture(); defer { fixture.remove() }
     let source = "![local][logo]\n\n![remote](https://example.com/image.png)\n\n# After\n\n[logo]: missing.png"
-    let recipe = try await MarkdownRenderer.render(PreviewTestFixtures.snapshot(source, root: fixture.root))
-    let result = try await MarkdownRenderer.compose(recipe, theme: PreviewTheme())
-    #expect(result.text.string.contains("[Image: local]"))
-    #expect(result.text.string.contains("[Image: remote]"))
-    #expect(result.text.string.contains("Remote images are not downloaded"))
-    #expect(result.text.string.contains("https://example.com/image.png"))
-    let heading = try #require(result.anchors.first { $0.heading == "after" })
-    #expect(result.text.attributedSubstring(from: heading.rendered).string == "After\n")
-    #expect(recipe.diagnostics.count == 2)
+    let session = MarkdownPreviewSession(debounce: .zero)
+    session.show(PreviewTestFixtures.snapshot(source, root: fixture.root)); await session.waitForRendering()
+    defer { session.hide() }
+    #expect(session.recipe?.diagnostics.count == 2)
+    #expect(previewImages(in: session.textView).isEmpty)
+    #expect(session.textView.string.contains("https://example.com/image.png"))
+    #expect(session.message?.contains("Remote images are not downloaded") == true)
+    let heading = try #require(session.composition?.anchors.first { $0.heading == "after" })
+    #expect((session.textView.string as NSString).substring(with: heading.rendered).contains("After"))
 }
 
 @Test @MainActor func previewBoundsTotalAttachmentWork() async throws {
@@ -92,8 +92,6 @@ func previewResourcesBlockUnsafeDestinations(target: String) throws {
     try fixture.png().write(to: fixture.root.appendingPathComponent("image.png"))
     let source = String(repeating: "![small](image.png)\n\n", count: 260)
     let recipe = try await MarkdownRenderer.render(PreviewTestFixtures.snapshot(source, root: fixture.root))
-    #expect(recipe.runs.compactMap(\.bitmap).count <= 256)
+    #expect(recipe.media.compactMap(\.bitmap).count <= 256)
     #expect(!recipe.diagnostics.isEmpty)
-    let result = try await MarkdownRenderer.compose(recipe, theme: PreviewTheme())
-    #expect(result.text.string.contains("[Image: small]"))
 }

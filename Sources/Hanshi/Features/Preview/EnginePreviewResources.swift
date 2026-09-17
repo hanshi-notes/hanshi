@@ -11,19 +11,17 @@ nonisolated struct EnginePreviewResources: EmbeddedImageProvider, LatexRenderer,
     var code: [String: [HighlightToken]] = [:]
 
     @MainActor init(recipe: MarkdownRecipe) {
-        for run in recipe.runs {
-            if let bitmap = run.bitmap, let image = NSImage(data: bitmap.data) {
-                image.size = NSSize(width: bitmap.width, height: bitmap.height)
-                switch run.media {
-                case let .image(target, _): images[target] = image
-                case let .math(source, _):
-                    formulas[source.trimmingCharacters(in: .whitespacesAndNewlines)] = LatexRenderResult(
-                        image: image, size: image.size, baselineOffset: bitmap.height - bitmap.baseline)
-                case let .mermaid(source): diagrams[source.trimmingCharacters(in: .whitespacesAndNewlines)] = image
-                default: break
-                }
+        code = recipe.code
+        for media in recipe.media {
+            guard let bitmap = media.bitmap, let image = NSImage(data: bitmap.data) else { continue }
+            image.size = NSSize(width: bitmap.width, height: bitmap.height)
+            switch media.kind {
+            case let .image(target): images[target] = image
+            case let .math(source, _):
+                formulas[source.trimmingCharacters(in: .whitespacesAndNewlines)] = LatexRenderResult(
+                    image: image, size: image.size, baselineOffset: bitmap.height - bitmap.baseline)
+            case let .mermaid(source): diagrams[source.trimmingCharacters(in: .whitespacesAndNewlines)] = image
             }
-            if !run.tokens.isEmpty { code[run.text] = run.tokens }
         }
     }
 
@@ -57,15 +55,10 @@ extension PreviewTheme {
         var configuration = MarkdownEditorConfiguration.default
         configuration.textInsets = TextInsets(horizontal: inset.width, vertical: inset.height)
         configuration.overscroll = OverscrollPolicy(percent: 0, maxPoints: 0, minPoints: 0)
-        // Two styling paths reach the same view: `MarkdownRenderer.composeText` builds the
-        // attributed string, and the engine restyles it whenever the preview is editable.
-        // Whatever these two disagree on, the engine wins on screen — so every value below
-        // mirrors the composed one.
         configuration.headings.fontMultipliers = [2.0, 1.6, 1.3, 1.15, 1.0, 0.95]
         configuration.headings.topSpacingEm = configuration.headings.fontMultipliers.map { 12 / (bodySize * $0) }
         // The engine grows the line box itself (minimumLineHeight), so this also loosens code
-        // blocks and stretches inline-code backgrounds. It is the same leading the composed
-        // paragraph style uses, expressed in the unit the engine wants.
+        // blocks and stretches inline-code backgrounds.
         let leading = bodyLineSpacing
         // Source newlines already separate paragraphs; extra paragraph spacing would also
         // be added after every ordinary Return, on top of the configured line height.
