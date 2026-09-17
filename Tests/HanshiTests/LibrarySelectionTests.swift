@@ -346,7 +346,12 @@ extension AppKitWindowTests {
         await reopenedStore.refresh()
         try await eventually { reopenedStore.notebooks.count == 2 }
         reopened.layoutSubtreeIfNeeded()
-        try clickRow(panel: 1, top: 80, in: reopened, window: window)
+        // The store has the catalog before SwiftUI draws its rows, and a click sent in between lands
+        // on nothing. Repeat it until the selection takes; selecting the same row again changes nothing.
+        try await eventually {
+            (try? clickRow(panel: 1, top: 80, in: reopened, window: window)) != nil
+                && reopenedDefaults.string(forKey: Note.selectionKey)?.hasSuffix("/Renamed/B.md") == true
+        }
         let note = try #require(reopenedStore.notes.first { $0.name == "B" })
         try await eventually { reopenedStore.documents[note.id]?.editor.textView.window === window }
         #expect(reopenedDefaults.string(forKey: Notebook.selectionKey) == target.id)
