@@ -87,6 +87,7 @@ struct LibraryScreen: View {
         .focusedSceneValue(\.zenMode, layoutBinding($isZen))
         .focusedSceneValue(\.notebookSidebarVisible, layoutBinding($sidebarVisible))
         .focusedSceneValue(\.noteDocument, document)
+        .focusedSceneValue(\.libraryRoot, store.files.root)
     }
 
     private func layoutBinding(_ binding: Binding<Bool>) -> Binding<Bool> {

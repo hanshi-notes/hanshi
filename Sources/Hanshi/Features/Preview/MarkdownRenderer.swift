@@ -172,21 +172,14 @@ nonisolated enum MarkdownRenderer {
         func build() throws -> MarkdownRecipe {
             var source = text
             let ns = text as NSString
-            if lines.offsets.count > 2, ns.substring(with: lines.range(start: 1, end: 1)).trimmingCharacters(in: .newlines) == "---" {
-                for line in 2...min(lines.offsets.count, 10000) {
-                    let value = ns.substring(with: lines.range(start: line, end: line)).trimmingCharacters(in: .newlines)
-                    if value == "---" || value == "..." {
-                        let range = lines.range(start: 1, end: line)
-                        var style = PreviewRun(text: "")
-                        style.code = true; style.paragraph.code = true; style.paragraph.codeBlock = 0
-                        append(ns.substring(with: range), style)
-                        newline(style)
-                        anchors.append(MarkdownAnchor(source: range, rendered: NSRange(location: 0, length: offset)))
-                        source = ns.substring(from: range.upperBound)
-                        baseLine = line
-                        break
-                    }
-                }
+            if let matter = MarkdownRenderer.frontmatter(text, lines: lines) {
+                var style = PreviewRun(text: "")
+                style.code = true; style.paragraph.code = true; style.paragraph.codeBlock = 0
+                append(ns.substring(with: matter.range), style)
+                newline(style)
+                anchors.append(MarkdownAnchor(source: matter.range, rendered: NSRange(location: 0, length: offset)))
+                source = ns.substring(from: matter.range.upperBound)
+                baseLine = matter.endLine
             }
             guard let parser = hanshi_markdown_parser() else { throw PreviewFailure.message("Cannot create Markdown parser") }
             defer { cmark_parser_free(parser) }
@@ -356,6 +349,18 @@ nonisolated enum MarkdownRenderer {
                 else { append(literal(node), style) }
             }
         }
+    }
+
+    /// The YAML front matter block a note opens with, as a source range and the line it closes on.
+    static func frontmatter(_ text: String, lines: MarkdownLineIndex) -> (range: NSRange, endLine: Int)? {
+        let ns = text as NSString
+        guard lines.offsets.count > 2,
+              ns.substring(with: lines.range(start: 1, end: 1)).trimmingCharacters(in: .newlines) == "---" else { return nil }
+        for line in 2...min(lines.offsets.count, 10000) {
+            let value = ns.substring(with: lines.range(start: line, end: line)).trimmingCharacters(in: .newlines)
+            if value == "---" || value == "..." { return (lines.range(start: 1, end: line), line) }
+        }
+        return nil
     }
 
     static func slug(_ title: String) -> String {
