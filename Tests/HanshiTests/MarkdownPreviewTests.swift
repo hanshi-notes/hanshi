@@ -108,6 +108,39 @@ private actor PreviewRenderGate {
     #expect(opened.count == 1)
 }
 
+// Regression: the engine prefixed scheme-less targets with https://, so clicks bypassed followLink's routing.
+@Test @MainActor func previewLinkClicksReachTheDestinationAsWritten() async throws {
+    let fixture = try PreviewResourceFixture(); defer { fixture.remove() }
+    try Data("# Other\n".utf8).write(to: fixture.root.appendingPathComponent("Other.md"))
+    let session = MarkdownPreviewSession(debounce: .zero)
+    let snapshot = PreviewTestFixtures.snapshot("""
+    # Heading
+
+    [note](Other.md#part) [mail](mailto:a@b.com) [anchor](#heading) [web](https://example.com) [call](tel:911)
+    """, root: fixture.root)
+    var external: [String] = [], notes: [String] = []
+    session.openExternal = { external.append($0.absoluteString) }
+    session.openNote = { url, fragment in notes.append(url.lastPathComponent + "#" + (fragment ?? "")); return true }
+    session.show(snapshot); await session.waitForRendering()
+    func click(_ label: String) throws {
+        let range = (session.textView.string as NSString).range(of: "[\(label)]")
+        try #require(range.location != NSNotFound)
+        let index = range.location + 1
+        let link = try #require(session.textView.textStorage?.attribute(.link, at: index, effectiveRange: nil))
+        #expect(session.engine.textView(session.textView, clickedOnLink: link, at: index))
+    }
+    for label in ["note", "mail", "anchor", "web"] {
+        try click(label)
+        #expect(session.message == nil, "\(label): \(session.message ?? "")")
+    }
+    #expect(notes == ["Other.md#part"])
+    #expect(external == ["mailto:a@b.com", "https://example.com"])
+    try click("call")
+    #expect(session.message?.contains("not allowed") == true)
+    #expect(external.count == 2)
+    session.hide()
+}
+
 @Test @MainActor func previewSelectionCopyAndStyleChangesPreserveReadableContent() async throws {
     let session = MarkdownPreviewSession(debounce: .zero)
     var snapshot = PreviewTestFixtures.snapshot("**Bold** and $x^2$\n\n| A | B |\n|---|---|\n| Tea | 2 |")
