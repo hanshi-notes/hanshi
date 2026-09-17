@@ -206,6 +206,8 @@ nonisolated enum MarkdownRenderer {
                 }
             }
         }
+        // The scroll lookup searches anchors by position; the walk above emits blocks before their lines.
+        recipe.anchors.sort { $0.source.location == $1.source.location ? $0.source.length < $1.source.length : $0.source.location < $1.source.location }
         return recipe
     }
 

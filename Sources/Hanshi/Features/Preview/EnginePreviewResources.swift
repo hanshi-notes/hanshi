@@ -4,7 +4,10 @@ import MarkdownEngine
 
 /// Resources are prepared by Hanshi's bounded worker; the engine only reads them.
 nonisolated struct EnginePreviewResources: EmbeddedImageProvider, LatexRenderer, SyntaxHighlighter {
-    let id = UUID()
+    /// What the attachments and highlighting contain. The engine restyles the whole note when this
+    /// changes, and every preview update renders them again, so a fresh identity per update restyled
+    /// the note on every edit even when nothing it draws had changed.
+    let id: Int
     var images: [String: NSImage] = [:]
     var diagrams: [String: NSImage] = [:]
     var formulas: [String: LatexRenderResult] = [:]
@@ -12,6 +15,22 @@ nonisolated struct EnginePreviewResources: EmbeddedImageProvider, LatexRenderer,
 
     @MainActor init(recipe: MarkdownRecipe) {
         code = recipe.code
+        var content = Hasher()
+        for media in recipe.media {
+            content.combine(String(describing: media.kind))
+            if let bitmap = media.bitmap {
+                // Every byte: Data's own hash may stop early, and two drawings can share their headers.
+                bitmap.data.withUnsafeBytes { content.combine(bytes: $0) }
+                content.combine(bitmap.width); content.combine(bitmap.height); content.combine(bitmap.baseline)
+            }
+        }
+        // Dictionary order varies between equal dictionaries; the sum of entry hashes does not.
+        content.combine(recipe.code.reduce(0) { sum, entry in
+            var hasher = Hasher()
+            hasher.combine(entry.key); hasher.combine(entry.value)
+            return sum &+ hasher.finalize()
+        })
+        id = content.finalize()
         for media in recipe.media {
             guard let bitmap = media.bitmap, let image = NSImage(data: bitmap.data) else { continue }
             image.size = NSSize(width: bitmap.width, height: bitmap.height)

@@ -3,7 +3,19 @@ import Observation
 
 @Observable
 final class NoteStore {
-    private(set) var notebooks: [Notebook] = []
+    private(set) var notebooks: [Notebook] = [] {
+        didSet {
+            notes = notebooks.flatMap(\.notes).sorted {
+                let order = $0.name.localizedStandardCompare($1.name)
+                return order == .orderedSame
+                    ? $0.notebookName.localizedStandardCompare($1.notebookName) == .orderedAscending
+                    : order == .orderedAscending
+            }
+        }
+    }
+    /// Every note, by name and then notebook. Kept rather than derived: library views read it several
+    /// times per evaluation, and sorting thousands of names on each read cost tenths of a second.
+    private(set) var notes: [Note] = []
     private(set) var isBusy = false
     private(set) var hasLoaded = false
     /// An action the user asked for failed. Nothing changed, so it is worth interrupting for.
@@ -27,15 +39,6 @@ final class NoteStore {
 
     init(root: URL = URL.documentsDirectory.appendingPathComponent("hanshi", isDirectory: true)) {
         files = LibraryFiles(root: root)
-    }
-
-    var notes: [Note] {
-        notebooks.flatMap(\.notes).sorted {
-            let order = $0.name.localizedStandardCompare($1.name)
-            return order == .orderedSame
-                ? $0.notebookName.localizedStandardCompare($1.notebookName) == .orderedAscending
-                : order == .orderedAscending
-        }
     }
 
     func refresh() async {

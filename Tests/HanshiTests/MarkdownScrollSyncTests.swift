@@ -118,3 +118,60 @@ extension AppKitWindowTests {
         #expect(session.textView.string.hasPrefix("# New note"))
     }
 }
+
+/// The lookup the scroll sync runs on every scroll event, as it was: a scan over every anchor.
+@MainActor private func scannedAnchor(at offset: Int, anchors: [MarkdownAnchor], source: Bool) -> MarkdownAnchor? {
+    let range: (MarkdownAnchor) -> NSRange = { source ? $0.source : $0.rendered }
+    let containing = anchors.filter { let r = range($0); return r.location <= offset && (r.upperBound > offset || r.length == 0 && r.location == offset) }
+    if let exact = containing.min(by: { range($0).length < range($1).length }) { return exact }
+    return anchors.min { abs(range($0).location - offset) < abs(range($1).location - offset) }
+}
+
+@Test @MainActor func anchorLookupAnswersExactlyWhatAScanAnswers() {
+    var state: UInt64 = 0x9E37_79B9_7F4A_7C15
+    func next(_ bound: Int) -> Int {
+        state ^= state << 13; state ^= state >> 7; state ^= state << 17
+        return Int(state % UInt64(bound))
+    }
+    for _ in 0..<300 {
+        // Nested blocks, per-line anchors, duplicates, empty anchors and gaps, sorted as the parse sorts them;
+        // rendered ranges shrink after a point, as shortened wiki links shift them.
+        var anchors: [MarkdownAnchor] = []
+        for _ in 0..<next(40) {
+            let location = next(120)
+            let length = next(4) == 0 ? 0 : next(30)
+            // A link shortened by 5 at 55..<65, mapped as previewRanges maps it: never backwards.
+            func shown(_ offset: Int) -> Int { offset <= 55 ? offset : offset >= 65 ? offset - 5 : min(offset, 60) }
+            let rendered = NSRange(location: shown(location), length: shown(location + length) - shown(location))
+            let heading: String? = next(2) == 0 ? "h\(next(1000))" : nil
+            anchors.append(MarkdownAnchor(source: NSRange(location: location, length: length), rendered: rendered, heading: heading))
+        }
+        anchors.sort { a, b in
+            a.source.location == b.source.location ? a.source.length < b.source.length : a.source.location < b.source.location
+        }
+        let composition = MarkdownComposition(text: "" as NSString, anchors: anchors)
+        for offset in 0...160 {
+            for source in [true, false] {
+                #expect(MarkdownScrollSync.anchor(at: offset, in: composition, source: source) == scannedAnchor(at: offset, anchors: anchors, source: source),
+                        "offset \(offset) source \(source) anchors \(anchors.map { source ? $0.source : $0.rendered })")
+            }
+        }
+    }
+}
+
+@Test(.enabled(if: ProcessInfo.processInfo.environment["HANSHI_PERF"] != nil)) @MainActor
+func anchorLookupCostStaysFlatAsAnchorsGrow() throws {
+    func milliseconds(_ units: Int) throws -> Double {
+        let unit = "## Heading\n\nA paragraph with **bold**.\n\n- item\n- [x] done\n\n```swift\nlet a = 1\nprint(a)\n```\n\n"
+        let text = String(repeating: unit, count: units)
+        let composition = MarkdownComposition(text: text as NSString, anchors: try MarkdownRenderer.parse(text).anchors)
+        let length = (text as NSString).length
+        let start = DispatchTime.now().uptimeNanoseconds
+        for index in 0..<200 { _ = MarkdownScrollSync.anchor(at: length * index / 200, in: composition, source: index % 2 == 0) }
+        return Double(DispatchTime.now().uptimeNanoseconds - start) / 200 / 1e6
+    }
+    let small = try milliseconds(1_000), large = try milliseconds(8_000)
+    print("ANCHOR_LOOKUP small=\(small)ms large=\(large)ms ratio=\(large / small)")
+    // 8× the anchors: a scan reads about 8× per scroll event, a search barely moves.
+    #expect(large / small < 3)
+}

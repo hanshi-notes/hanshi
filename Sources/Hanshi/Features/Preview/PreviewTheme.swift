@@ -75,6 +75,19 @@ nonisolated struct PreviewTheme: Equatable, Sendable {
 }
 
 struct MarkdownComposition {
-    let text: NSAttributedString
+    let text: NSString
+    /// In source order, which the scroll lookup's binary search relies on.
     let anchors: [MarkdownAnchor]
+    /// The furthest end among the anchors up to each index, for each coordinate space.
+    let sourceReach: [Int]
+    let renderedReach: [Int]
+
+    init(text: NSString, anchors: [MarkdownAnchor]) {
+        self.text = text
+        self.anchors = anchors
+        var end = Int.min
+        sourceReach = anchors.map { end = max(end, $0.source.upperBound); return end }
+        end = Int.min
+        renderedReach = anchors.map { end = max(end, $0.rendered.upperBound); return end }
+    }
 }

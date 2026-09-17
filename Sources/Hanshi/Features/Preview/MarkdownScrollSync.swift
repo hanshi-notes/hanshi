@@ -13,13 +13,13 @@ extension MarkdownPreviewSession {
         guard let composition, !composition.anchors.isEmpty else { return nil }
         let y = scrollView.contentView.bounds.minY
         guard let offset = engine.previewCharacter(at: NSPoint(x: textView.textContainerOrigin.x + 1, y: y + 1)) else { return nil }
-        let anchor = MarkdownScrollSync.anchor(at: offset, anchors: composition.anchors, source: false)
+        let anchor = MarkdownScrollSync.anchor(at: offset, in: composition, source: false)
         guard let anchor, let rect = frame(at: anchor.rendered.location, length: anchor.rendered.length) else { return nil }
         return MarkdownReadingPosition(sourceOffset: anchor.source.location, fraction: min(1, max(0, (y - rect.minY) / max(1, rect.height))))
     }
     func restore(position: MarkdownReadingPosition) {
-        guard let anchors = composition?.anchors,
-              let anchor = MarkdownScrollSync.anchor(at: position.sourceOffset, anchors: anchors, source: true) else { return }
+        guard let composition,
+              let anchor = MarkdownScrollSync.anchor(at: position.sourceOffset, in: composition, source: true) else { return }
         scroll(to: anchor.rendered.location, length: anchor.rendered.length, fraction: position.fraction)
     }
     func scroll(to offset: Int, length: Int = 1, fraction: Double) {
@@ -75,19 +75,60 @@ final class MarkdownScrollSync: NSObject {
         guard panel == active else { return }
         synchronize(from: panel)
     }
-    static func anchor(at offset: Int, anchors: [MarkdownAnchor], source: Bool) -> MarkdownAnchor? {
-        let range: (MarkdownAnchor) -> NSRange = { source ? $0.source : $0.rendered }
-        let containing = anchors.filter { let r = range($0); return r.location <= offset && (r.upperBound > offset || r.length == 0 && r.location == offset) }
-        if let exact = containing.min(by: { range($0).length < range($1).length }) { return exact }
-        return anchors.min { abs(range($0).location - offset) < abs(range($1).location - offset) }
+    /// The shortest anchor containing `offset`, else the one starting nearest it; ties go to the earlier anchor.
+    /// Runs on every scroll event, so it searches instead of scanning all anchors (50,000 on a 1 MB note).
+    static func anchor(at offset: Int, in composition: MarkdownComposition, source: Bool) -> MarkdownAnchor? {
+        let anchors = composition.anchors
+        let reach = source ? composition.sourceReach : composition.renderedReach
+        let range: (Int) -> NSRange = { source ? anchors[$0].source : anchors[$0].rendered }
+        // Anchors are in source order, and rendered ranges keep it: count those starting at or before the offset.
+        var low = 0, high = anchors.count
+        while low < high {
+            let mid = (low + high) / 2
+            if range(mid).location <= offset { low = mid + 1 } else { high = mid }
+        }
+        let started = low
+        if started > 0, reach[started - 1] > offset || range(started - 1).location == offset {
+            var best: Int?
+            var index = started - 1
+            while index >= 0 {
+                let r = range(index)
+                let gap = offset - r.location
+                // Anything starting this far back that contains the offset is longer than the best.
+                if let best, gap > range(best).length || gap == range(best).length && gap > 0 { break }
+                if r.upperBound > offset || r.length == 0 && gap == 0, best.map({ r.length <= range($0).length }) ?? true {
+                    best = index
+                }
+                index -= 1
+            }
+            if let best { return anchors[best] }
+        }
+        // Nearest start: the last run of starts below the offset or the first start after it.
+        func firstIndex(startingAt location: Int) -> Int {
+            var low = 0, high = anchors.count
+            while low < high {
+                let mid = (low + high) / 2
+                if range(mid).location < location { low = mid + 1 } else { high = mid }
+            }
+            return low
+        }
+        let below = started > 0 ? firstIndex(startingAt: range(started - 1).location) : nil
+        let above = started < anchors.count ? started : nil
+        switch (below, above) {
+        case let (below?, above?):
+            return offset - range(below).location <= range(above).location - offset ? anchors[below] : anchors[above]
+        case let (below?, nil): return anchors[below]
+        case let (nil, above?): return anchors[above]
+        case (nil, nil): return nil
+        }
     }
     private func editorFrame(offset: Int) -> NSRect? {
         editor?.textView.textFrame(at: offset)
     }
-    private func editorPosition(anchors: [MarkdownAnchor]) -> MarkdownReadingPosition? {
+    private func editorPosition(in composition: MarkdownComposition) -> MarkdownReadingPosition? {
         guard let editor, let offset = editor.textView.firstVisibleCharacter() else { return nil }
         let top = editor.scrollView.contentView.bounds.minY
-        guard let anchor = Self.anchor(at: offset, anchors: anchors, source: true), let first = editorFrame(offset: anchor.source.location) else { return nil }
+        guard let anchor = Self.anchor(at: offset, in: composition, source: true), let first = editorFrame(offset: anchor.source.location) else { return nil }
         let last = editorFrame(offset: max(anchor.source.location, anchor.source.upperBound - 1)) ?? first
         return MarkdownReadingPosition(sourceOffset: anchor.source.location, fraction: min(1, max(0, (top - first.minY) / max(1, last.maxY - first.minY))))
     }
@@ -95,13 +136,13 @@ final class MarkdownScrollSync: NSObject {
     func synchronize(from panel: Panel) {
         guard !moving, let editor, let preview, let snapshot = preview.appliedSnapshot,
               preview.isCurrent(snapshot), editor.displayedText == snapshot.text,
-              let anchors = preview.composition?.anchors, !anchors.isEmpty else { return }
+              let composition = preview.composition, !composition.anchors.isEmpty else { return }
         active = panel; moving = true
         defer { moving = false }
         if panel == .editor {
-            if let position = editorPosition(anchors: anchors) { preview.restore(position: position) }
+            if let position = editorPosition(in: composition) { preview.restore(position: position) }
             expectedPreviewY = preview.scrollView.contentView.bounds.minY
-        } else if let position = preview.readingPosition(), let anchor = Self.anchor(at: position.sourceOffset, anchors: anchors, source: true) {
+        } else if let position = preview.readingPosition(), let anchor = Self.anchor(at: position.sourceOffset, in: composition, source: true) {
             alignEditor(anchor: anchor, fraction: position.fraction)
         }
         movementCount += 1

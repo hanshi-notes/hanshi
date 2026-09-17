@@ -50,16 +50,27 @@ final class LineNumberView: NSRulerView {
 
     func invalidateLineNumbers() {
         guard let text = (clientView as? NSTextView)?.textStorage?.string as NSString? else { return }
-        lineStarts = [0]
-        var offset = 0
+        // A line starts after every terminator NSString breaks lines on, CRLF counting once. One pass
+        // over the characters: a lineRange call per line was a third of each keystroke on a 1 MB note.
         // ponytail: rebuild the line index on edits; update the affected suffix if larger notes need it.
-        while offset < text.length {
-            offset = NSMaxRange(text.lineRange(for: NSRange(location: offset, length: 0)))
-            lineStarts.append(offset)
+        var starts = [0]
+        var buffer = [unichar](repeating: 0, count: 4096)
+        var carriageReturn = false
+        var chunk = NSRange(location: 0, length: 0)
+        while NSMaxRange(chunk) < text.length {
+            chunk = NSRange(location: NSMaxRange(chunk), length: min(buffer.count, text.length - NSMaxRange(chunk)))
+            text.getCharacters(&buffer, range: chunk)
+            for index in 0..<chunk.length {
+                let character = buffer[index]
+                if carriageReturn, character != 0x0A { starts.append(chunk.location + index) }
+                carriageReturn = character == 0x0D
+                if character == 0x0A || character == 0x85 || character == 0x2028 || character == 0x2029 {
+                    starts.append(chunk.location + index + 1)
+                }
+            }
         }
-        if text.length > 0, text.lineRange(for: NSRange(location: text.length, length: 0)).length > 0 {
-            lineStarts.removeLast()
-        }
+        if carriageReturn { starts.append(text.length) }
+        lineStarts = starts
         updateThickness()
         needsDisplay = true
     }

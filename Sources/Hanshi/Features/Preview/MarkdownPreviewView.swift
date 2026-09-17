@@ -183,7 +183,7 @@ import MarkdownEngine
         let anchors = zip(recipe.anchors, displayed).compactMap { anchor, range in
             range.map { MarkdownAnchor(source: anchor.source, rendered: $0, heading: anchor.heading) }
         }
-        let result = MarkdownComposition(text: NSAttributedString(attributedString: textView.textStorage!), anchors: anchors)
+        let result = MarkdownComposition(text: textView.string as NSString, anchors: anchors)
         self.composition = result
         appliedSnapshot = snapshot
         message = recipe.diagnostics.isEmpty ? nil : Array(Set(recipe.diagnostics)).sorted().joined(separator: " · ")
@@ -208,12 +208,12 @@ import MarkdownEngine
         let range = NSRange(location: start, length: min(new.text.length, end) - start)
         guard range.length > 0 else {
             if start > 0, start < new.text.length {
-                let composed = (new.text.string as NSString).rangeOfComposedCharacterSequence(at: start)
+                let composed = new.text.rangeOfComposedCharacterSequence(at: start)
                 return NSRange(location: composed.location, length: 0)
             }
             return range
         }
-        return (new.text.string as NSString).rangeOfComposedCharacterSequences(for: range)
+        return new.text.rangeOfComposedCharacterSequences(for: range)
     }
     func focusIfNeeded() {
         guard let focusDocumentID, appliedSnapshot?.documentID == focusDocumentID, !isRendering, requested == appliedSnapshot else { return }

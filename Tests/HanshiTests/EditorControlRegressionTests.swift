@@ -170,3 +170,25 @@ extension AppKitWindowTests {
         #expect(UserDefaults(suiteName: suite)?.bool(forKey: EditorFont.gutterKey) == true)
     }
 }
+
+/// The gutter rebuilds its line index on every edit. It must find exactly the lines NSString does,
+/// terminators TextKit breaks on included, whichever chunk a CR or CRLF straddles.
+@Test(arguments: ["", "a", "a\n", "\n\n", "a\r\nb", "a\rb", "a\r", "\r\n\r\n", "a\u{85}b\u{2028}c\u{2029}d", "no terminator at the end"]
+      + [String(repeating: "x", count: 4095) + "\r\n" + "y", String(repeating: "x", count: 4095) + "\ry",
+         String(repeating: "é\r\n", count: 3000)])
+@MainActor func gutterLineIndexMatchesNSString(_ text: String) {
+    let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+    let scroll = NSScrollView(frame: view.frame)
+    scroll.documentView = view
+    view.string = text
+    let ruler = LineNumberView(textView: view, scrollView: scroll)
+    ruler.invalidateLineNumbers()
+    let ns = text as NSString
+    var expected = [0], offset = 0
+    while offset < ns.length {
+        offset = NSMaxRange(ns.lineRange(for: NSRange(location: offset, length: 0)))
+        expected.append(offset)
+    }
+    if ns.length > 0, ns.lineRange(for: NSRange(location: ns.length, length: 0)).length > 0 { expected.removeLast() }
+    #expect(ruler.lineStarts == expected)
+}

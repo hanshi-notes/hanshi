@@ -169,3 +169,31 @@ func tabWidthBindingsClampReadsAndWrites(value: Int) {
     #expect(values.item == nil)
     #expect(!binding.wrappedValue)
 }
+
+/// Library views read the note list several times per evaluation, and sorting thousands of names per
+/// read cost the screen tenths of a second each time. The list is kept, and follows every catalog change.
+@Test @MainActor func noteListIsKeptSortedAcrossReadsAndCatalogChanges() async throws {
+    let library = TestLibrary()
+    let first = library.root.appendingPathComponent("B-notebook"), second = library.root.appendingPathComponent("A-notebook")
+    for folder in [first, second] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+    for name in ["zeta", "Alpha", "note 10", "note 2"] { try Data().write(to: first.appendingPathComponent("\(name).md")) }
+    try Data().write(to: second.appendingPathComponent("alpha.md"))
+    let store = NoteStore(root: library.root)
+    await store.refresh()
+    func expected() -> [String] {
+        store.notebooks.flatMap(\.notes).sorted {
+            let order = $0.name.localizedStandardCompare($1.name)
+            return order == .orderedSame ? $0.notebookName.localizedStandardCompare($1.notebookName) == .orderedAscending : order == .orderedAscending
+        }.map(\.id)
+    }
+    #expect(store.notes.map(\.name) == ["alpha", "Alpha", "note 2", "note 10", "zeta"])
+    #expect(store.notes.map(\.id) == expected())
+    let firstRead = store.notes.withUnsafeBufferPointer { $0.baseAddress }
+    let secondRead = store.notes.withUnsafeBufferPointer { $0.baseAddress }
+    #expect(firstRead == secondRead, "Reading the list again must not rebuild it")
+
+    try Data().write(to: second.appendingPathComponent("beta.md"))
+    await store.refresh()
+    #expect(store.notes.map(\.name) == ["alpha", "Alpha", "beta", "note 2", "note 10", "zeta"])
+    #expect(store.notes.map(\.id) == expected())
+}
