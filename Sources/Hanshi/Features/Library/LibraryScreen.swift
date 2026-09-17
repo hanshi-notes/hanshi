@@ -51,33 +51,41 @@ struct LibraryScreen: View {
         }
     }
 
-    private var visibleNotebooks: [Notebook] {
-        var collapsedAncestor: Notebook?
-        return store.notebooks.filter { notebook in
-            if collapsedAncestor?.contains(notebook.url) == true { return false }
-            collapsedAncestor = collapsedNotebookIDs.contains(notebook.id) ? notebook : nil
-            return true
-        }
-    }
-
     private var libraryLayout: some View {
         GeometryReader { geometry in
             // Keep the document's SwiftUI identity when hiding the library chrome.
             HSplitView {
                 if !isZen && sidebarVisible {
-                    sidebar
+                    NotebookSidebarView(notebooks: store.notebooks, noteCount: store.notes.count, selection: notebookID,
+                                        root: store.files.root, theme: sidebarTheme, isBusy: store.isBusy,
+                                        sessionID: store.sessionID, isExpanded: $notebooksExpanded,
+                                        collapsedIDs: $collapsedNotebookIDs, dropTargetID: $dropNotebookID, onEvent: handle)
                         .frame(minWidth: 140, idealWidth: geometry.size.width * 0.212, maxWidth: 440)
                         .ignoresSafeArea(.container, edges: .top)
                 }
                 if !isZen {
-                    noteList
+                    NoteListView(notes: visibleNotes, selection: noteID, notebooks: store.notebooks, root: store.files.root,
+                                 sessionID: store.sessionID, sidebarVisible: sidebarVisible, isBusy: store.isBusy,
+                                 query: $query, searchFocused: $searchFocused, onEvent: handle)
                         .frame(minWidth: sidebarVisible ? 180 : 180 + BarMetrics.windowControlsInset,
                                idealWidth: geometry.size.width * 0.272, maxWidth: 560)
                         .ignoresSafeArea(.container, edges: .top)
                 }
-                content
-                    .frame(minWidth: sidebarVisible ? 450 : 610, idealWidth: geometry.size.width * 0.516)
-                    .ignoresSafeArea(.container, edges: .top)
+                VStack(spacing: 0) {
+                    if !isZen {
+                        NoteToolbarView(notebooks: store.notebooks, root: store.files.root, notebookSelection: notebookID,
+                                        showsNotebookPicker: !sidebarVisible, document: document, noteURL: selectedNote?.url,
+                                        mode: $mode, onSelectNotebook: selectNotebook)
+                    }
+                    // Zen hides the bar; the document keeps its place so it stays clear of the window's buttons.
+                    NoteDocumentView(document: document, hasSelection: noteID != nil, isOpening: openingNoteID == noteID,
+                                     files: store.files, mode: mode, libraryID: store.sessionID,
+                                     resourceGeneration: store.resourceGeneration, noteURLs: store.notes.map(\.url),
+                                     preview: previewSession, onEvent: handle)
+                        .padding(.top, isZen ? BarMetrics.height : 0)
+                }
+                .frame(minWidth: sidebarVisible ? 450 : 610, idealWidth: geometry.size.width * 0.516)
+                .ignoresSafeArea(.container, edges: .top)
             }
         }
         .background(.white)
@@ -145,10 +153,20 @@ struct LibraryScreen: View {
         .onChange(of: selectedNote?.url ?? document?.url, initial: true) { _, url in
             rememberSelectedNote(url)
         }
-        .sheet(isPresented: $showingNotebookSheet) { notebookNameSheet(nil) }
-        .sheet(item: $renamingNotebook) { notebook in notebookNameSheet(notebook) }
-        .sheet(isPresented: $showingDestinationSheet) { destinationSheet }
-        .sheet(item: $renamingNote) { note in renameNoteSheet(note) }
+        .sheet(isPresented: $showingNotebookSheet) { notebookNameForm(renaming: nil) }
+        .sheet(item: $renamingNotebook) { notebook in notebookNameForm(renaming: notebook) }
+        .sheet(isPresented: $showingDestinationSheet) {
+            NotebookPickerView(notebooks: store.notebooks, root: store.files.root, onEvent: handle)
+        }
+        .sheet(item: $renamingNote) { note in
+            NameFormView(title: "Rename Note", placeholder: "Name", footnote: "The .md extension is kept automatically.",
+                         confirmTitle: "Rename", name: $noteName, isBusy: store.isBusy) { event in
+                switch event {
+                case .confirm: renameNote(note)
+                case .cancel: renamingNote = nil
+                }
+            }
+        }
         .confirmationDialog("Move this note to the Trash?", isPresented: $trashingNote.isPresented, presenting: trashingNote) { note in
             Button("Move to Trash", role: .destructive) { Task { await store.trash(note) } }
         } message: { note in
@@ -170,407 +188,63 @@ struct LibraryScreen: View {
         }
     }
 
-    private var sidebar: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Spacer()
-                BarButton(title: "New Notebook", icon: "plus", color: sidebarTheme.foreground, action: showNewNotebook)
-                    // A white surface over the sidebar colour would outweigh the bar's buttons.
-                    .barControl(surface: sidebarTheme.foreground.opacity(0.06), border: sidebarTheme.foreground.opacity(0.25))
-                    .help("New Notebook (⇧⌘N)")
-                    .disabled(store.isBusy)
-            }
-            .padding(.horizontal, BarMetrics.margin)
-            .frame(height: BarMetrics.height)
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    Button { selectNotebook("all") } label: {
-                        sidebarRow("All Notes", icon: "doc.text.fill", count: store.notes.count,
-                                   selected: notebookID == "all")
-                    }
-                    Button { notebooksExpanded.toggle() } label: {
-                        sidebarRow("Notebooks", icon: notebooksExpanded ? "chevron.down" : "chevron.right",
-                                   count: store.notes.count)
-                    }
-                    .help(notebooksExpanded ? "Collapse Notebooks" : "Expand Notebooks")
-                    .accessibilityValue(notebooksExpanded ? "Expanded" : "Collapsed")
-
-                    if notebooksExpanded {
-                        let parents = Set(store.notebooks.map { $0.url.deletingLastPathComponent().standardizedFileURL })
-                        ForEach(visibleNotebooks) { notebook in
-                            notebookRow(notebook, hasChildren: parents.contains(notebook.url.standardizedFileURL))
-                        }
-                    }
-                    sidebarRow("Tags", icon: "tag.fill", count: 0)
-                        .accessibilityHint("Tag organization is not available yet")
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .background(sidebarTheme.background)
-        .foregroundStyle(sidebarTheme.foreground)
-        .contextMenu {
-            Button("New Notebook…") { showNewNotebook() }
-                .disabled(store.isBusy)
-            Button("Show Library in Finder") {
-                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: store.files.root.path)
-            }
-            Button("Refresh Library") { Task { await store.refresh() } }
-                .disabled(store.isBusy)
-        }
-        .background {
-            Button("New Notebook", action: showNewNotebook)
-                .keyboardShortcut("n", modifiers: [.command, .shift])
-                .disabled(store.isBusy)
-                .hidden()
-            Button("Refresh Library") { Task { await store.refresh() } }
-                .keyboardShortcut("r")
-                .disabled(store.isBusy)
-                .hidden()
+    private func handle(_ event: NotebookSidebarView.Event) {
+        switch event {
+        case let .select(id): selectNotebook(id)
+        case let .newNotebook(parent): showNewNotebook(in: parent)
+        case let .rename(notebook):
+            notebookName = notebook.name
+            renamingNotebook = notebook
+        case let .trash(notebook): trashingNotebook = notebook
+        case let .move(noteID, notebook): moveNote(noteID, to: notebook)
+        case .refresh: Task { await store.refresh() }
         }
     }
 
-    private func notebookRow(_ notebook: Notebook, hasChildren: Bool) -> some View {
-        let indentation = CGFloat(notebook.path(in: store.files.root).split(separator: "/").count - 1) * 18
-        let collapsed = collapsedNotebookIDs.contains(notebook.id)
-        return Button { selectNotebook(notebook.id) } label: {
-            sidebarRow(notebook.name, count: notebook.notes.count,
-                       selected: notebookID == notebook.id || dropNotebookID == notebook.id,
-                       indentation: indentation)
-        }
-        .overlay(alignment: .leading) {
-            if hasChildren {
-                Button {
-                    if collapsed { collapsedNotebookIDs.remove(notebook.id) }
-                    else { collapsedNotebookIDs.insert(notebook.id) }
-                } label: {
-                    Image(systemName: collapsed ? "chevron.right" : "chevron.down")
-                        .font(.system(size: 10, weight: .semibold))
-                        .frame(width: 23, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .padding(.leading, 12 + indentation)
-                .help(collapsed ? "Expand \(notebook.name)" : "Collapse \(notebook.name)")
-                .accessibilityLabel("Subnotebooks of \(notebook.name)")
-                .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
-            }
-        }
-        .onDrop(of: [NoteDrag.type], delegate: NotebookDropDelegate(
-            store: store, notebookID: notebook.id, targetedNotebookID: $dropNotebookID,
-            move: { moveNote($0, to: notebook) }))
-        .contextMenu {
-            Button("New Subnotebook…") { showNewNotebook(in: notebook) }
-                .disabled(store.isBusy)
-            Button("Rename…") {
-                notebookName = notebook.name
-                renamingNotebook = notebook
-            }
-            .disabled(store.isBusy)
-            Button("Move to Trash", role: .destructive) { trashingNotebook = notebook }
-                .disabled(store.isBusy)
-            Divider()
-            Button("Show in Finder") {
-                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: notebook.url.path)
-            }
+    private func handle(_ event: NoteListView.Event) {
+        switch event {
+        case .toggleSidebar: layoutBinding($sidebarVisible).wrappedValue.toggle()
+        case .newNote: newNote()
+        case let .select(id): selectNote(id)
+        case let .move(noteID, notebook): moveNote(noteID, to: notebook)
+        case let .rename(note):
+            noteName = note.name
+            renamingNote = note
+        case let .trash(note): trashingNote = note
         }
     }
 
-    private func sidebarRow(_ name: String, icon: String? = nil, count: Int,
-                            selected: Bool = false, indentation: CGFloat = 0) -> some View {
-        HStack(spacing: 5) {
-            if let icon {
-                BarIconView(icon)
-                    .frame(width: BarMetrics.iconBox, height: BarMetrics.iconBox)
-            }
-            Text(name)
-                .font(.system(size: 13.5, weight: .regular))
-                .lineLimit(1)
-            Spacer(minLength: 8)
-            Text(count, format: .number)
-                .font(.system(size: 12, weight: .medium).monospacedDigit())
-        }
-        .padding(.leading, (icon == nil ? 35 : 12) + indentation)
-        .padding(.trailing, 12)
-        .frame(height: 32)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .background(selected ? sidebarTheme.foreground.opacity(0.08) : .clear)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-
-    private var noteList: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: BarMetrics.margin) {
-                BarButton(title: sidebarVisible ? "Hide Notebook Sidebar" : "Show Notebook Sidebar", icon: "sidebar.left") {
-                    layoutBinding($sidebarVisible).wrappedValue.toggle()
-                }
-                .barControl()
-                .help(sidebarVisible ? "Hide Notebook Sidebar (⌃⌘S)" : "Show Notebook Sidebar (⌃⌘S)")
-                HStack(spacing: 0) {
-                    TextField("Search…", text: $query)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13.5))
-                        .padding(.horizontal, 5)
-                        .focused($searchFocused)
-                        .accessibilityLabel("Search notes by filename")
-                    BarIconView("magnifyingglass")
-                        .foregroundStyle(BarMetrics.iconColor)
-                        .frame(width: 29)
-                }
-                .barControl(cornerRadius: 5)
-                Button(action: newNote) {
-                    BarIconView("plus")
-                        .foregroundStyle(BarMetrics.iconColor)
-                        .frame(width: BarMetrics.buttonWidth, height: BarMetrics.controlHeight)
-                }
-                .buttonStyle(.plain)
-                .barControl()
-                .help("New Note (⌘N)")
-                .accessibilityLabel("New Note")
-                .keyboardShortcut("n")
-                .disabled(store.isBusy)
-            }
-            .barGlassContainer()
-            // Without the notebook column, this bar is the one under the window's buttons.
-            .padding(.leading, sidebarVisible ? 0 : BarMetrics.windowControlsInset)
-            .padding(.horizontal, BarMetrics.margin)
-            .frame(height: BarMetrics.height)
-            .background(Color(white: 0.97))
-            .overlay(alignment: .bottom) { Divider() }
-            HStack {
-                Text("Name")
-                Spacer()
-                Image(systemName: "chevron.up")
-                    .font(.system(size: 12))
-                    .frame(width: BarMetrics.iconBox, height: BarMetrics.iconBox)
-            }
-            .font(.system(size: 12))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 10)
-            .frame(height: 27)
-            .overlay(alignment: .bottom) { Divider() }
-            ScrollViewReader { scroll in
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(visibleNotes) { note in
-                            Button { selectNote(note.id) } label: {
-                                NoteRowView(note: note, selected: noteID == note.id)
-                                    .onDrag { NoteDrag.provider(noteID: note.id, sessionID: store.sessionID) }
-                            }
-                            .buttonStyle(.plain)
-                            .id(note.id)
-                            .help("\(note.notebookName) / \(note.name)")
-                            .contextMenu {
-                                Menu("Move to Notebook") {
-                                    ForEach(store.notebooks.filter { $0.url != note.url.deletingLastPathComponent() }) { notebook in
-                                        Button(notebook.path(in: store.files.root)) { moveNote(note.id, to: notebook) }
-                                    }
-                                }
-                                .disabled(store.isBusy || store.notebooks.count < 2)
-                                Button("Rename…") {
-                                    noteName = note.name
-                                    renamingNote = note
-                                }
-                                .disabled(store.isBusy)
-                                Button("Move to Trash", role: .destructive) { trashingNote = note }
-                                    .disabled(store.isBusy)
-                                Divider()
-                                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([note.url]) }
-                            }
-                        }
-                    }
-                }
-                .onChange(of: noteID) { _, id in
-                    if let id { scroll.scrollTo(id) }
-                }
-                .overlay {
-                    if visibleNotes.isEmpty {
-                        VStack(spacing: 12) {
-                            Text(query.isEmpty ? "No notes yet" : "No matching notes")
-                                .foregroundStyle(.secondary)
-                            if query.isEmpty {
-                                Button(store.notebooks.isEmpty ? "New Notebook" : "New Note", action: newNote)
-                                    .disabled(store.isBusy)
-                            }
-                        }
-                        .padding()
-                    }
-                }
-            }
-        }
-        .foregroundStyle(Color(white: 0.12))
-        .background(.white)
-    }
-
-    private var content: some View {
-        VStack(spacing: 0) {
-            if !isZen {
-                HStack(spacing: BarMetrics.margin) {
-                    if !sidebarVisible {
-                        Picker("Notebook", selection: Binding(get: { notebookID }, set: { selectNotebook($0) })) {
-                            Text("All Notes").font(.system(size: 14)).tag("all")
-                            ForEach(store.notebooks) { notebook in
-                                Text(notebook.path(in: store.files.root)).font(.system(size: 14)).tag(notebook.id)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .labelsHidden()
-                        .controlSize(.regular)
-                        .frame(width: 180, height: 28)
-                        .help(notebook?.name ?? "All Notes")
-                    }
-                    toolbarGroup {
-                        SaveNoteButton(document: document)
-                        toolbarDivider
-                        toolbarButton("Edit", icon: "highlighter", active: mode != .preview) {
-                            mode = mode == .preview ? .source : .preview
-                        }
-                        .contextMenu {
-                            ForEach(ContentMode.allCases) { option in
-                                Button(option.rawValue) { mode = option }
-                            }
-                        }
-                        toolbarDivider
-                        toolbarButton("Tags", icon: "tag.fill")
-                        toolbarDivider
-                        toolbarButton("Attachments", icon: "paperclip")
-                    }
-                    toolbarGroup {
-                        toolbarButton("Favorite", icon: "star")
-                        toolbarDivider
-                        toolbarButton("Pin", icon: "pin.fill")
-                    }
-                    toolbarGroup {
-                        toolbarButton("Move to Trash", icon: "trash.fill")
-                    }
-                    Spacer(minLength: 0)
-                    toolbarGroup {
-                        toolbarButton("Share", icon: "square.and.arrow.up")
-                        toolbarDivider
-                        toolbarButton("Show Note in Finder", icon: "arrow.up.forward.square",
-                                      action: selectedNote.map { note in
-                            { NSWorkspace.shared.activateFileViewerSelecting([note.url]) }
-                        })
-                    }
-                }
-                .barGlassContainer()
-                .padding(.horizontal, BarMetrics.margin)
-                .frame(height: BarMetrics.height)
-                .background(Color(white: 0.97))
-                .overlay(alignment: .bottom) { Divider() }
-            }
-            // Zen hides the bar; the document keeps its place so it stays clear of the window's buttons.
-            documentContent
-                .padding(.top, isZen ? BarMetrics.height : 0)
+    private func handle(_ event: NoteDocumentView.Event) {
+        switch event {
+        case .editorAppeared: previewSession.openNote = openPreviewNote
+        case .retryOpen: Task { await openSelectedNote() }
         }
     }
 
-    @ViewBuilder private var documentContent: some View {
-        if let document {
-            NoteEditorContentView(document: document, files: store.files, mode: mode,
-                                  libraryID: store.sessionID, resourceGeneration: store.resourceGeneration, noteURLs: store.notes.map(\.url),
-                                  preview: previewSession)
-                .onAppear { previewSession.openNote = openPreviewNote }
-        } else if noteID != nil {
-            VStack(spacing: 12) {
-                if openingNoteID == noteID { ProgressView("Opening note…") }
-                else {
-                    Text("Unable to open this note.").foregroundStyle(.secondary)
-                    Button("Retry") {
-                        Task { await openSelectedNote() }
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            Text("Select a note to start writing")
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+    private func handle(_ event: NotebookPickerView.Event) {
+        switch event {
+        case let .choose(notebook):
+            showingDestinationSheet = false
+            notebookID = notebook.id
+            noteID = nil
+            createNote(in: notebook.url)
+        case .cancel: showingDestinationSheet = false
         }
     }
 
-    private var toolbarDivider: some View { Divider().frame(height: BarMetrics.controlHeight) }
-
-    private func toolbarGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        HStack(spacing: 0, content: content).barControl()
-    }
-
-    private func toolbarButton(_ title: String, icon: String, active: Bool = false,
-                               action: (() -> Void)? = nil) -> some View {
-        BarButton(title: title, icon: icon, active: active, action: action)
-    }
-
-    private func notebookNameSheet(_ notebook: Notebook?) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text(notebook == nil ? "New Notebook" : "Rename Notebook").font(.title2.bold())
-            Text(notebook == nil
-                 ? "Create a folder in \(newNotebookParent?.path(in: store.files.root) ?? "your Hanshi library")."
-                 : "Rename this notebook and keep all its contents.").foregroundStyle(.secondary)
-            TextField("Notebook name", text: $notebookName)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit { saveNotebook(notebook) }
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { showingNotebookSheet = false; renamingNotebook = nil }
-                    .keyboardShortcut(.cancelAction)
-                Button(notebook == nil ? "Create" : "Rename") { saveNotebook(notebook) }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(notebookName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.isBusy)
+    private func notebookNameForm(renaming notebook: Notebook?) -> NameFormView {
+        NameFormView(
+            title: notebook == nil ? "New Notebook" : "Rename Notebook",
+            message: notebook == nil
+                ? "Create a folder in \(newNotebookParent?.path(in: store.files.root) ?? "your Hanshi library")."
+                : "Rename this notebook and keep all its contents.",
+            placeholder: "Notebook name", confirmTitle: notebook == nil ? "Create" : "Rename",
+            name: $notebookName, isBusy: store.isBusy) { event in
+            switch event {
+            case .confirm: saveNotebook(notebook)
+            case .cancel: showingNotebookSheet = false; renamingNotebook = nil
             }
         }
-        .padding(24)
-        .frame(width: 360)
-    }
-
-    private var destinationSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Choose a Notebook").font(.title2.bold())
-            Text("The new note will be created in this folder.").foregroundStyle(.secondary)
-            ScrollView {
-                VStack(spacing: 6) {
-                    ForEach(store.notebooks) { notebook in
-                        Button {
-                            showingDestinationSheet = false
-                            notebookID = notebook.id
-                            noteID = nil
-                            createNote(in: notebook.url)
-                        } label: {
-                            Label(notebook.path(in: store.files.root), systemImage: "book.closed")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                }
-            }
-            .frame(maxHeight: 220)
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { showingDestinationSheet = false }
-                    .keyboardShortcut(.cancelAction)
-            }
-        }
-        .padding(24)
-        .frame(width: 360)
-    }
-
-    private func renameNoteSheet(_ note: Note) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Rename Note").font(.title2.bold())
-            TextField("Name", text: $noteName)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit { renameNote(note) }
-            Text("The .md extension is kept automatically.").foregroundStyle(.secondary)
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { renamingNote = nil }
-                    .keyboardShortcut(.cancelAction)
-                Button("Rename") { renameNote(note) }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(noteName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.isBusy)
-            }
-        }
-        .padding(24)
-        .frame(width: 360)
     }
 
     private func moveNote(_ id: String, to notebook: Notebook) {
@@ -592,7 +266,7 @@ struct LibraryScreen: View {
 
     private func newNote() {
         if let notebook { createNote(in: notebook.url) }
-        else if store.notebooks.isEmpty { showNewNotebook() }
+        else if store.notebooks.isEmpty { showNewNotebook(in: nil) }
         else { showingDestinationSheet = true }
     }
 
@@ -648,8 +322,6 @@ struct LibraryScreen: View {
         } else { noteID = note.id }
         return true
     }
-
-    private func showNewNotebook() { showNewNotebook(in: nil) }
 
     private func showNewNotebook(in parent: Notebook?) {
         newNotebookParent = parent

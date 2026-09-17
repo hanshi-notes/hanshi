@@ -10,7 +10,7 @@ extension AppKitWindowTests {
         let store = NoteStore(root: library.root)
         var targeted: String?
         var droppedID: String?
-        let delegate = NotebookDropDelegate(store: store, notebookID: "destination",
+        let delegate = NotebookDropDelegate(isBusy: store.isBusy, sessionID: store.sessionID, notebookID: "destination",
             targetedNotebookID: Binding(get: { targeted }, set: { targeted = $0 }), move: { droppedID = $0 })
         let host = NSHostingView(rootView: Color.blue.frame(width: 100, height: 100)
             .onDrop(of: [NoteDrag.type], delegate: delegate))

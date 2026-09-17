@@ -23,14 +23,15 @@ nonisolated enum NoteDrag {
 }
 
 struct NotebookDropDelegate: DropDelegate {
-    let store: NoteStore
+    let isBusy: Bool
+    let sessionID: UUID
     let notebookID: String
     @Binding var targetedNotebookID: String?
     let move: (String) -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
         // Item providers are only available inside performDrop, not while hovering.
-        !store.isBusy && info.hasItemsConforming(to: [NoteDrag.type])
+        !isBusy && info.hasItemsConforming(to: [NoteDrag.type])
     }
 
     func dropEntered(info: DropInfo) {
@@ -51,7 +52,7 @@ struct NotebookDropDelegate: DropDelegate {
         let providers = info.itemProviders(for: [NoteDrag.type])
         guard providers.count == 1, let provider = providers.first else { return false }
         Task {
-            if let noteID = await NoteDrag.noteID(from: provider, sessionID: store.sessionID) {
+            if let noteID = await NoteDrag.noteID(from: provider, sessionID: sessionID) {
                 move(noteID)
             }
         }
