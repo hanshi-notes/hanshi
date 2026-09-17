@@ -66,7 +66,7 @@ struct LibraryScreen: View {
                 if !isZen {
                     NoteListView(notes: visibleNotes, selection: noteID, notebooks: store.notebooks, root: store.files.root,
                                  sessionID: store.sessionID, sidebarVisible: sidebarVisible, isBusy: store.isBusy,
-                                 query: $query, searchFocused: $searchFocused, onEvent: handle)
+                                 reloadError: store.reloadError, query: $query, searchFocused: $searchFocused, onEvent: handle)
                         .frame(minWidth: sidebarVisible ? 180 : 180 + BarMetrics.windowControlsInset,
                                idealWidth: geometry.size.width * 0.272, maxWidth: 560)
                         .ignoresSafeArea(.container, edges: .top)
@@ -178,7 +178,6 @@ struct LibraryScreen: View {
             Text("The folder \(notebook.name) and all its contents will be moved to the Trash. Unsaved notes will be saved first.")
         }
         .alert("Library Error", isPresented: $store.errorMessage.isPresented) {
-            Button("Retry") { Task { await store.refresh() } }
             Button("OK", role: .cancel) { }
         } message: { Text(store.errorMessage ?? "") }
         .background {
@@ -211,6 +210,7 @@ struct LibraryScreen: View {
             noteName = note.name
             renamingNote = note
         case let .trash(note): trashingNote = note
+        case .retryReload: Task { await store.refresh() }
         }
     }
 

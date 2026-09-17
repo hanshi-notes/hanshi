@@ -8,6 +8,7 @@ struct NoteListView: View {
         case move(noteID: String, to: Notebook)
         case rename(Note)
         case trash(Note)
+        case retryReload
     }
 
     let notes: [Note]
@@ -17,6 +18,7 @@ struct NoteListView: View {
     let sessionID: UUID
     let sidebarVisible: Bool
     let isBusy: Bool
+    let reloadError: String?
     @Binding var query: String
     let searchFocused: FocusState<Bool>.Binding
     let onEvent: (Event) -> Void
@@ -117,19 +119,32 @@ struct NoteListView: View {
                     }
                 }
             }
+            if let reloadError {
+                HStack(spacing: 8) {
+                    Label("Couldn’t reload the library: \(reloadError)", systemImage: "exclamationmark.triangle")
+                        .lineLimit(2)
+                    Spacer(minLength: 0)
+                    Button("Retry") { onEvent(.retryReload) }
+                        .disabled(isBusy)
+                }
+                .font(.system(size: 12))
+                .padding(8)
+                .background(Color(white: 0.97))
+                .overlay(alignment: .top) { Divider() }
+            }
         }
         .foregroundStyle(Color(white: 0.12))
         .background(.white)
     }
 }
 
-#Preview {
+#Preview("Reload failed") {
     @Previewable @FocusState var searchFocused: Bool
     let notebook = URL(filePath: "/library/Writing")
     NoteListView(
         notes: [Note(id: "draft", url: notebook.appendingPathComponent("Draft.md"))],
         selection: "draft", notebooks: [], root: URL(filePath: "/library"), sessionID: UUID(),
-        sidebarVisible: true, isBusy: false,
+        sidebarVisible: true, isBusy: false, reloadError: "The folder “Writing” couldn’t be opened.",
         query: .constant(""), searchFocused: $searchFocused) { _ in }
         .frame(width: 320, height: 400)
 }

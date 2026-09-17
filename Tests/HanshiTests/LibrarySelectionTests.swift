@@ -584,3 +584,46 @@ extension AppKitWindowTests {
         #expect(try String(contentsOf: source.url, encoding: .utf8) == "[[\(target)]]\n")
     }
 }
+
+extension AppKitWindowTests {
+    /// A failed reload leaves the catalog usable, so it must not take over the window. A failed action
+    /// the user asked for does interrupt, and offers no retry that would only reload the library.
+    @Test @MainActor func failedReloadStaysInlineAndFailedActionsInterruptWithoutRetry() async throws {
+        _ = NSApplication.shared
+        let fixture = try PreviewResourceFixture(); defer { fixture.remove() }
+        let notebook = try await LibraryFiles(root: fixture.root).createNotebook(named: "Notes")
+        try Data("# A\n".utf8).write(to: notebook.appendingPathComponent("A.md"))
+        let store = NoteStore(root: fixture.root)
+        await store.refresh()
+        let preferences = TestPreferences(); defer { preferences.remove() }
+        let host = NSHostingView(rootView: LibraryScreen(defaults: preferences.defaults).environment(store))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 650), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host; window.orderFront(nil); host.layoutSubtreeIfNeeded()
+        defer { window.contentView = nil; window.close() }
+
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: notebook.path)
+        do {
+            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: notebook.path) }
+            await store.refresh()
+        }
+        #expect(store.reloadError != nil)
+        #expect(store.errorMessage == nil)
+        #expect(store.notes.count == 1, "The catalog on screen survives a failed reload")
+        try await Task.sleep(for: .milliseconds(200))
+        host.layoutSubtreeIfNeeded()
+        #expect(window.attachedSheet == nil, "A failed reload must not block the window")
+        await store.refresh()
+        #expect(store.reloadError == nil, "A successful reload clears the report")
+
+        #expect(await store.createNotebook(named: "Notes") == nil)
+        try await eventually { window.attachedSheet != nil }
+        let alert = try #require(window.attachedSheet?.contentView)
+        #expect(buttonTitles(in: alert) == ["OK"])
+    }
+}
+
+@MainActor private func buttonTitles(in view: NSView) -> [String] {
+    if let button = view as? NSButton { return button.isHidden || button.title.isEmpty ? [] : [button.title] }
+    return view.subviews.flatMap { buttonTitles(in: $0) }
+}

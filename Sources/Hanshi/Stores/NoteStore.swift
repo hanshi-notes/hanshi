@@ -6,7 +6,10 @@ final class NoteStore {
     private(set) var notebooks: [Notebook] = []
     private(set) var isBusy = false
     private(set) var hasLoaded = false
+    /// An action the user asked for failed. Nothing changed, so it is worth interrupting for.
     var errorMessage: String?
+    /// The last reload failed. The catalog already on screen stays usable, so it is only reported.
+    private(set) var reloadError: String?
     let files: LibraryFiles
     let sessionID = UUID()
     private(set) var resourceGeneration = 0
@@ -53,9 +56,10 @@ final class NoteStore {
                 })
             }
             hasLoaded = true
+            reloadError = nil
             for document in documents.values { await document.reload(using: files) }
         }
-        catch { errorMessage = error.localizedDescription }
+        catch { reloadError = error.localizedDescription }
     }
 
     func createNotebook(named name: String, in parent: URL? = nil) async -> String? {
