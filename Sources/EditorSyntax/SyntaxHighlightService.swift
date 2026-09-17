@@ -27,6 +27,16 @@ public actor SyntaxHighlightService {
         }
     }
 
+    /// Sends the tokens already parsed again, over the whole document, for when only the colours
+    /// changed. The parse is kept; `contentLength` must be that of the text last highlighted.
+    public func requestRestyling(contentLength: Int) async {
+        await tokenHandler?(HighlightUpdate(
+            generation: nextGeneration(),
+            invalidatedRanges: [NSRange(location: 0, length: contentLength)],
+            tokens: cachedTokens
+        ))
+    }
+
     public func requestHighlighting(content: String, edit: PendingTextEdit) async {
         cachedTokens = adjustedTokenRanges(
             cachedTokens,

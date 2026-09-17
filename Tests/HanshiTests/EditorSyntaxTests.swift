@@ -25,6 +25,29 @@ import SwiftTreeSitter
     #expect(tokens.contains { $0.name.hasPrefix("text.title") && NSIntersectionRange($0.range, last).length == last.length })
 }
 
+/// A theme change only changes colours: restyling repaints the tokens already parsed, over the whole
+/// document, instead of parsing it again.
+@Test func restylingResendsTheParsedTokensOverTheWholeDocument() async throws {
+    let client = try TreeSitterClient(languageConfiguration: #require(SyntaxResources.configuration(for: .markdown)),
+                                      languageProvider: SyntaxResources.languageProvider(named:))
+    let log = HighlightLog()
+    let service = SyntaxHighlightService(treeSitterClient: client) { await log.record($0) }
+    let source = "# Heading\n\nText with `code`\n"
+    await service.requestInitialHighlighting(source)
+    await service.requestRestyling(contentLength: source.utf16.count)
+    let updates = await log.updates
+    try #require(updates.count == 2)
+    #expect(!updates[0].tokens.isEmpty)
+    #expect(updates[1].tokens == updates[0].tokens)
+    #expect(updates[1].invalidatedRanges == [NSRange(location: 0, length: source.utf16.count)])
+    #expect(updates[1].generation > updates[0].generation)
+}
+
+private actor HighlightLog {
+    var updates: [HighlightUpdate] = []
+    func record(_ update: HighlightUpdate) { updates.append(update) }
+}
+
 @Test func everyPackagedGrammarLoadsAndMarkdownQueriesExposeItsPaletteRoles() throws {
     let supported = Set(["bash", "css", "html", "javascript", "jsdoc", "json", "markdown",
                          "markdown_inline", "python", "regex", "swift", "typescript", "yaml"])

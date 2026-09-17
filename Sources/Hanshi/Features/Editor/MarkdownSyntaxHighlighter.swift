@@ -29,7 +29,14 @@ final class MarkdownSyntaxHighlighter {
 
     func setTheme(_ theme: SyntaxTheme) {
         guard colors.setTheme(theme) else { return }
-        highlight(textView?.string ?? colors.source)
+        // Only the colours changed, so repaint the last parse instead of parsing again. It runs after
+        // any highlight already queued, and a newer one cannot skip it; if the text moved on meanwhile,
+        // the applier notices and the next highlight repaints everything.
+        let previous = work
+        work = Task {
+            await previous?.value
+            await service?.requestRestyling(contentLength: colors.source.utf16.count)
+        }
     }
 
     func highlight(_ text: String) {
@@ -65,7 +72,7 @@ final class MarkdownSyntaxHighlighter {
             colors = theme.colors
         }
 
-        /// False when the theme was already applied; a fresh highlight then repaints the document.
+        /// False when the theme was already applied; otherwise the caller repaints the document.
         func setTheme(_ theme: SyntaxTheme) -> Bool {
             guard self.theme != theme else { return false }
             self.theme = theme
