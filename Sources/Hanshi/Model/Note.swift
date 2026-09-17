@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct Note: Identifiable, Sendable {
+nonisolated struct Note: Identifiable, Equatable, Sendable {
     static let selectionKey = "selectedNoteID"
     static let hidesExtensionKey = "noteListHidesExtension"
     let id: String

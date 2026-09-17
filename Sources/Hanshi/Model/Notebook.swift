@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct Notebook: Identifiable, Sendable {
+nonisolated struct Notebook: Identifiable, Equatable, Sendable {
     static let selectionKey = "selectedNotebookID"
 
     let id: String

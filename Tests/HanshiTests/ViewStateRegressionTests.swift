@@ -88,6 +88,26 @@ extension AppKitWindowTests {
     }
 }
 
+/// The app reloads the catalog every time it becomes active. Reassigning an identical catalog must
+/// not wake every view that reads it; a real change still must.
+@Test @MainActor func reloadingAnUnchangedLibraryDoesNotNotifyCatalogObservers() async throws {
+    let library = TestLibrary()
+    let note = try await library.note("keep")
+    let store = NoteStore(root: library.root)
+    await store.refresh()
+    let changes = ChangeCount()
+    withObservationTracking { _ = store.notebooks } onChange: { changes.count += 1 }
+    await store.refresh()
+    #expect(changes.count == 0, "An identical catalog must not notify")
+    try Data("other".utf8).write(to: note.url.deletingLastPathComponent().appendingPathComponent("Other.md"))
+    await store.refresh()
+    #expect(changes.count == 1, "A changed catalog must notify")
+}
+
+private final class ChangeCount: @unchecked Sendable {
+    var count = 0
+}
+
 @MainActor private final class ViewEvaluationCount {
     var count = 0
 }
