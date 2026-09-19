@@ -11,7 +11,9 @@ This project is **two git repositories**, not one:
 | Path | Repository | Contents |
 |---|---|---|
 | `.` | `hanshi-notes/hanshi` | the app |
-| `Vendor/swift-markdown-engine` | `hanshi-notes/swift-markdown-engine`, branch `experimental` | the Markdown editor engine, a submodule |
+| `Vendor/swift-markdown-engine` | `hanshi-notes/swift-markdown-engine` | the Markdown editor engine, a submodule |
+
+Both repositories must use `main` for development and commits.
 
 The engine is our fork of [`nodes-app/swift-markdown-engine`](https://github.com/nodes-app/swift-markdown-engine) (Apache-2.0), which is configured as the `upstream` remote inside the submodule. `Package.swift` consumes it by path, so an edit there is picked up by the next build — there is no version to bump.
 
