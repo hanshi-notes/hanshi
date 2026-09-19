@@ -19,6 +19,47 @@ import Testing
 }
 
 extension AppKitWindowTests {
+    @Test(arguments: [0.0, 14.0, 72.0]) @MainActor
+    func openingPreviewKeepsItsTopMarginAndCaretInsideTheTextColumn(verticalMargin: Double) async throws {
+        let preferences = TestPreferences()
+        defer { preferences.remove() }
+        preferences.defaults.set(verticalMargin, forKey: PreviewSettings.verticalMarginKey)
+        let document = PreviewTestFixtures.document("# Heading\n\n" + String(repeating: "Body text.\n\n", count: 100))
+        let session = MarkdownPreviewSession(debounce: .zero)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: MarkdownPreviewView(session: session,
+            snapshot: PreviewSnapshot(library: UUID(), documentID: document.id, text: document.text,
+                url: document.url, root: document.url.deletingLastPathComponent()), document: document)
+            .defaultAppStorage(preferences.defaults))
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { session.hide(); window.contentView = nil; window.close() }
+        session.focusDocumentID = document.id
+        host.layoutSubtreeIfNeeded()
+        await session.waitForRendering()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while session.focusDocumentID != nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(window.firstResponder === session.textView)
+        try await Task.sleep(for: .milliseconds(100))
+        window.displayIfNeeded()
+        #expect(session.scrollView.contentView.bounds.minY == 0)
+        let caret = window.convertFromScreen(session.textView.firstRect(forCharacterRange: session.textView.selectedRange(), actualRange: nil))
+        let localCaret = session.textView.convert(caret, from: nil)
+        #expect(localCaret.minX >= session.textView.textContainerOrigin.x)
+        // Refreshing the same note must also preserve a reader who has already scrolled down.
+        MarkdownScrollSync.scroll(session.scrollView, to: 300)
+        let position = session.scrollView.contentView.bounds.minY
+        try #require(position > 0)
+        session.retry()
+        await session.waitForRendering()
+        #expect(abs(session.scrollView.contentView.bounds.minY - position) < 1)
+        #expect(!document.isModified)
+    }
+
     @Test(arguments: [14.0, 17.0, 24.0], [false, true]) @MainActor
     func previewNumberedTasksKeepCheckboxesAndTextAligned(bodySize: Double, checked: Bool) async throws {
         let labels = ["Most important outcome", "Second outcome", "Third outcome"]

@@ -148,7 +148,8 @@ import MarkdownEngine
         let nativeEdit = appliedSnapshot?.documentID == snapshot.documentID
             && appliedSnapshot?.text != snapshot.text && engine.sourceText == snapshot.text
         let selection = textView.selectedRange()
-        let oldAnchor = nativeEdit ? nil : readingPosition()
+        // The document top includes its margin; restoring the first text anchor would scroll it away.
+        let oldAnchor = nativeEdit || scrollView.contentView.bounds.minY <= 0 ? nil : readingPosition()
         let oldComposition = composition
         let resources = EnginePreviewResources(recipe: recipe)
         var configuration = snapshot.theme.engineConfiguration
