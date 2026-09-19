@@ -8,7 +8,7 @@ import Testing
     defer { session.hide() }
     session.show(PreviewTestFixtures.snapshot("- [ ] Pending\n- [x] Done\n\nLiteral ☑ stays text."))
     await session.waitForRendering()
-    let accessible = try #require(session.textView.accessibilityValue() as? String)
+    let accessible = try #require(session.textView.accessibilityValue())
     #expect(accessible.contains("[ ] Pending"))
     #expect(accessible.contains("[x] Done"))
     session.textView.selectAll(nil)

@@ -142,8 +142,8 @@ extension AppKitWindowTests {
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(editor)
         defer { window.contentView = nil; window.close() }
-        let undo = NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
-        let redo = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        let undo = NSMenuItem(title: "Undo", action: #selector(MarkdownTextView.undo(_:)), keyEquivalent: "z")
+        let redo = NSMenuItem(title: "Redo", action: #selector(MarkdownTextView.redo(_:)), keyEquivalent: "Z")
         #expect(!editor.validateUserInterfaceItem(undo))
         #expect(!editor.validateUserInterfaceItem(redo))
         editor.undoManager?.groupsByEvent = false
@@ -152,10 +152,10 @@ extension AppKitWindowTests {
         editor.undoManager?.endUndoGrouping()
         #expect(document.text == "Original edit")
         #expect(editor.validateUserInterfaceItem(undo))
-        #expect(editor.tryToPerform(Selector(("undo:")), with: nil))
+        #expect(editor.tryToPerform(#selector(MarkdownTextView.undo(_:)), with: nil))
         #expect(document.text == "Original")
         #expect(editor.validateUserInterfaceItem(redo))
-        #expect(editor.tryToPerform(Selector(("redo:")), with: nil))
+        #expect(editor.tryToPerform(#selector(MarkdownTextView.redo(_:)), with: nil))
         #expect(document.text == "Original edit")
     }
 

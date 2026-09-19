@@ -13,7 +13,7 @@ struct NoteToolbarView: View {
     var body: some View {
         HStack(spacing: BarMetrics.margin) {
             if showsNotebookPicker {
-                Picker("Notebook", selection: Binding(get: { notebookSelection }, set: onSelectNotebook)) {
+                Picker("Notebook", selection: Binding(get: { notebookSelection }, set: { onSelectNotebook($0) })) {
                     Text("All Notes").font(.system(size: 14)).tag("all")
                     ForEach(notebooks) { notebook in
                         Text(notebook.path(in: root)).font(.system(size: 14)).tag(notebook.id)
