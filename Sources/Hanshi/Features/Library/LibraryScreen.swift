@@ -110,6 +110,12 @@ struct LibraryScreen: View {
         @Bindable var store = store
         libraryLayout
         .task(id: noteID) { await openSelectedNote() }
+        // Leaving a note is a checkpoint: it stays open, but its edits should not wait for the
+        // autosave interval. Watching the selection covers every route that changes it.
+        .onChange(of: noteID) { previous, _ in
+            guard let previous, let document = store.documents[previous] else { return }
+            Task { await document.save() }
+        }
         .onChange(of: mode) { focusSelectedNote() }
         .onChange(of: notebookID) {
             guard let notebook else { return }

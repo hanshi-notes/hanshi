@@ -542,7 +542,8 @@ extension AppKitWindowTests {
         try await eventually { preferences.defaults.string(forKey: Notebook.selectionKey) == nested.id }
         #expect(store.documents[note.id] === document)
         #expect(document.text == "nested draft")
-        #expect(document.isModified)
+        // Leaving the note saved it; the draft is kept in the sense that matters, text and undo.
+        try await eventually { (try? String(contentsOf: document.url, encoding: .utf8)) == "nested draft" }
         #expect(window.sheets.isEmpty)
     }
 }
@@ -626,4 +627,48 @@ extension AppKitWindowTests {
 @MainActor private func buttonTitles(in view: NSView) -> [String] {
     if let button = view as? NSButton { return button.isHidden || button.title.isEmpty ? [] : [button.title] }
     return view.subviews.flatMap { buttonTitles(in: $0) }
+}
+
+extension AppKitWindowTests {
+    @Test @MainActor func leavingANoteSavesItWithoutWaitingForTheAutosaveInterval() async throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = LibraryFiles(root: root)
+        _ = try await files.load()
+        let notebook = try await files.createNotebook(named: "Writing")
+        _ = try await files.createNotebook(named: "Empty")
+        // Headings that already match their filenames, so no save renames a note under the test.
+        for name in ["10", "2"] {
+            try Data("# \(name)\n".utf8).write(to: notebook.appendingPathComponent("\(name).md"))
+        }
+        try Data("Not a Markdown note".utf8).write(to: notebook.appendingPathComponent("1.txt"))
+        let store = NoteStore(root: root)
+        await store.refresh()
+        let first = try #require(store.notes.first)
+        #expect(first.name == "2")
+        let preferences = TestPreferences(); defer { preferences.remove() }
+        let host = NSHostingView(rootView: LibraryScreen(mode: .source, defaults: preferences.defaults)
+            .environment(store))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 650),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+
+        try clickRow(panel: 0, top: 150, in: host, window: window)
+        try await eventually { store.documents[first.id] != nil }
+        let document = try #require(store.documents[first.id])
+        document.edit("# 2\n\nEdited.\n")
+        #expect(document.isModified)
+        #expect(try String(contentsOf: document.url, encoding: .utf8) == "# 2\n")
+
+        try clickRow(panel: 1, top: 110, in: host, window: window)
+        try await eventually { !document.isModified }
+        #expect(try String(contentsOf: document.url, encoding: .utf8) == "# 2\n\nEdited.\n")
+        // The note stays open behind the new selection, edits and all.
+        #expect(document.text == "# 2\n\nEdited.\n")
+    }
 }

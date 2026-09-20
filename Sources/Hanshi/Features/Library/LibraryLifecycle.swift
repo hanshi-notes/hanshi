@@ -66,6 +66,13 @@ final class LibraryLifecycle: NSObject, NSApplicationDelegate {
         return false
     }
 
+    /// Switching away is a checkpoint: the edits should not wait for the autosave interval while
+    /// the app sits in the background, where nothing else would write them.
+    func applicationDidResignActive(_ notification: Notification) {
+        guard let store, store.hasUnsavedChanges else { return }
+        Task { await store.saveAll() }
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard store?.hasUnsavedChanges == true else { return .terminateNow }
         guard !isConfirmingClose else { return .terminateCancel }

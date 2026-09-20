@@ -69,9 +69,38 @@ struct SettingsView: View {
 struct GeneralSettingsView: View {
     @AppStorage(ContentMode.startupKey) private var startupMode = ContentMode.source
     @AppStorage(Note.hidesExtensionKey) private var hidesExtension = true
+    @AppStorage(Autosave.enabledKey) private var autosaveEnabled = true
+    @AppStorage(Autosave.secondsKey) private var autosaveSeconds = Autosave.defaultSeconds
+
+    private var boundedSeconds: Binding<Int> {
+        $autosaveSeconds[clampedTo: Autosave.secondsRange]
+    }
 
     var body: some View {
         Form {
+            Section("Saving") {
+                Toggle("Save notes automatically", isOn: $autosaveEnabled)
+                    .toggleStyle(.switch)
+                    .accessibilityIdentifier(Autosave.enabledKey)
+                LabeledContent("Save every") {
+                    HStack {
+                        TextField("Save every", value: boundedSeconds, format: .number.grouping(.never))
+                            .labelsHidden()
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 44)
+                        Text("seconds").foregroundStyle(.secondary)
+                        Stepper("Save every", value: boundedSeconds, in: Autosave.secondsRange, step: 5)
+                            .labelsHidden()
+                    }
+                }
+                .accessibilityIdentifier(Autosave.secondsKey)
+                .disabled(!autosaveEnabled)
+                Text(autosaveEnabled
+                     ? "A note you are writing is saved this often, so a crash costs at most that much typing."
+                     : "Notes are only saved with ⌘S, or when you close a note with unsaved changes.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
             Section("Startup") {
                 Picker("View when opening the app", selection: $startupMode) {
                     ForEach(ContentMode.allCases) { mode in

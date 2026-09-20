@@ -58,7 +58,8 @@ extension AppKitWindowTests {
         try choose("All Notes")
         try await zenEventually { window.firstResponder === document.editor.textView }
         #expect(document.text == draft)
-        #expect(document.isModified)
+        // Leaving the note saved it; the draft is kept in the sense that matters, text and undo.
+        try await zenEventually { (try? String(contentsOf: document.url, encoding: .utf8)) == draft }
         #expect(document.editor.textView.undoManager?.canUndo == true)
         try choose("Writing")
         let notebook = try #require(store.notebooks.first { $0.name == "Writing" })

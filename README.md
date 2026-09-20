@@ -28,7 +28,8 @@ If `swift` still resolves to Xcode's older compiler, run `export TOOLCHAINS=org.
 
 - **Shortcuts:** new notebook ⌘⇧N, new note ⌘N, search ⌘⇧F, refresh ⌘R, Editor/Preview/Split ⌘⌥1/2/3, Zen ⌘⌥Z.
 - **Wiki-links:** `[[Note]]` or `[[Notebook/Note]]`. Renaming a note does not update links to it yet.
-- **Not yet:** autosave, continuous filesystem watching, a configurable library location.
+- **Saving:** notes save themselves every 60 seconds while you type, when you leave a note and when the app loses focus, or on ⌘S. The interval and the switch are in Settings › General.
+- **Not yet:** continuous filesystem watching, a configurable library location.
 - **Signing:** the packaged app is ad-hoc signed, with no App Sandbox or notarization. Release checks: `Scripts/package_app.sh release`, `Scripts/check_preview_package.sh`, `Scripts/check_editor_package.sh`.
 
 ## License

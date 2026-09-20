@@ -539,3 +539,84 @@ extension AppKitWindowTests {
         #expect(editor.backgroundColor == .textBackgroundColor)
     }
 }
+
+@Test @MainActor func autosaveKeepsSavingWhileTypingWithoutPauses() async throws {
+    let library = TestLibrary()
+    let note = try await library.note("original")
+    let files = library.files
+    let document = NoteDocument(note: note, contents: try await files.readNote(at: note.url),
+                                autosave: { .milliseconds(200) }) {
+        try await files.saveNote(at: $0, text: $1, expected: $2)
+    }
+    // Typing on, never pausing for anything close to the interval. The loop ends when the note
+    // reaches the disk by itself; a debounce would restart on every keystroke and run to the cap.
+    var typed = ""
+    var written = "original"
+    var keystrokes = 0
+    while written == "original", keystrokes < 600 {
+        keystrokes += 1
+        typed += "x"
+        document.edit(typed)
+        try await Task.sleep(for: .milliseconds(1))
+        written = try String(contentsOf: note.url, encoding: .utf8)
+    }
+    #expect(written != "original", "autosave must reach the disk while the typing goes on")
+    #expect(typed.hasPrefix(written), "a save must write a state the note actually passed through")
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while document.isModified, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(try String(contentsOf: note.url, encoding: .utf8) == typed)
+    #expect(!document.isModified)
+}
+
+@Test @MainActor func autosaveLeavesTheNoteAloneWhenItIsOff() async throws {
+    let library = TestLibrary()
+    let note = try await library.note("original")
+    let files = library.files
+    let document = NoteDocument(note: note, contents: try await files.readNote(at: note.url),
+                                autosave: { nil }) {
+        try await files.saveNote(at: $0, text: $1, expected: $2)
+    }
+    document.edit("draft")
+    try await Task.sleep(for: .milliseconds(120))
+    #expect(document.isModified)
+    #expect(try String(contentsOf: note.url, encoding: .utf8) == "original")
+    #expect(await document.save())
+    #expect(try String(contentsOf: note.url, encoding: .utf8) == "draft")
+}
+
+@Test func autosaveSettingsDecideTheInterval() throws {
+    let preferences = TestPreferences(); defer { preferences.remove() }
+    #expect(Autosave.interval(in: preferences.defaults) == .seconds(60))
+    preferences.defaults.set(15, forKey: Autosave.secondsKey)
+    #expect(Autosave.interval(in: preferences.defaults) == .seconds(15))
+    preferences.defaults.set(0, forKey: Autosave.secondsKey)
+    #expect(Autosave.interval(in: preferences.defaults) == .seconds(Autosave.secondsRange.lowerBound))
+    preferences.defaults.set(99_999, forKey: Autosave.secondsKey)
+    #expect(Autosave.interval(in: preferences.defaults) == .seconds(Autosave.secondsRange.upperBound))
+    preferences.defaults.set(false, forKey: Autosave.enabledKey)
+    #expect(Autosave.interval(in: preferences.defaults) == nil)
+}
+
+@Test @MainActor func leavingTheAppSavesEveryOpenNote() async throws {
+    let library = TestLibrary()
+    _ = try await library.note("# First\n")
+    let files = library.files
+    let folder = try await files.createNotebook(named: "More")
+    try Data("# Second\n".utf8).write(to: folder.appendingPathComponent("Second.md"))
+    let store = NoteStore(root: library.root)
+    await store.refresh()
+    for note in store.notes { await store.open(note) }
+    #expect(store.documents.count == 2)
+    for document in store.documents.values { document.edit(document.text + "\nEdited.\n") }
+    #expect(store.hasUnsavedChanges)
+
+    let lifecycle = LibraryLifecycle()
+    lifecycle.store = store
+    lifecycle.applicationDidResignActive(Notification(name: NSApplication.didResignActiveNotification))
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while store.hasUnsavedChanges, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(!store.hasUnsavedChanges)
+    for document in store.documents.values {
+        #expect(try String(contentsOf: document.url, encoding: .utf8).hasSuffix("\nEdited.\n"))
+    }
+}
